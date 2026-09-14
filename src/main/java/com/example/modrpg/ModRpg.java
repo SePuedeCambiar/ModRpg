@@ -1,5 +1,6 @@
 package com.example.modrpg;
 
+import com.example.modrpg.networking.ModMessages;
 import com.mojang.logging.LogUtils;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.eventbus.api.IEventBus;
@@ -14,6 +15,9 @@ public class ModRpg {
 
     public ModRpg() {
         IEventBus modEventBus = FMLJavaModLoadingContext.get().getModEventBus();
+
+        // ⚔️ Registramos el canal de red cliente <-> servidor
+        ModMessages.register();
 
         MinecraftForge.EVENT_BUS.register(this);
 
