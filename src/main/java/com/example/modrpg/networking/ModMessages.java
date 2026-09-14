@@ -21,7 +21,7 @@ public class ModMessages {
                 PROTOCOL_VERSION::equals
         );
 
-        // ID 0: Activar Capstone (Tecla R)
+        // ID 0: Golpe Definitivo +500% (Tecla R)
         INSTANCE.registerMessage(
                 0,
                 PacketSkillActivate.class,
@@ -30,7 +30,7 @@ public class ModMessages {
                 PacketSkillActivate::handle
         );
 
-        // ID 1: Sincronizar datos al Cliente (Servidor -> Cliente)
+        // ID 1: Sincronizar datos al cliente (Servidor -> Cliente)
         INSTANCE.registerMessage(
                 1,
                 PacketSyncSkillsToClient.class,
@@ -39,13 +39,22 @@ public class ModMessages {
                 PacketSyncSkillsToClient::handle
         );
 
-        // ID 2: Solicitar mejora de rama desde botón GUI (Cliente -> Servidor)
+        // ID 2: Subir de nivel desde la GUI (Cliente -> Servidor)
         INSTANCE.registerMessage(
                 2,
                 PacketUpgradeSkill.class,
                 PacketUpgradeSkill::encode,
                 PacketUpgradeSkill::decode,
                 PacketUpgradeSkill::handle
+        );
+
+        // ID 3: Ataque Giratorio 360° (Tecla V)
+        INSTANCE.registerMessage(
+                3,
+                PacketSpinAttack.class,
+                PacketSpinAttack::encode,
+                PacketSpinAttack::decode,
+                PacketSpinAttack::handle
         );
     }
 

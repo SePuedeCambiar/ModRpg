@@ -9,18 +9,19 @@ public class PlayerSkills {
     private int rangedLevel = 0;
     private int mobilityLevel = 0;
 
-    // === REQUISITOS DE PRÁCTICA (Kills / Acciones) ===
+    // === REQUISITOS DE PRÁCTICA ===
     private int meleeKills = 0;
     private int rangedKills = 0;
 
     // === HABILIDADES DESBLOQUEADAS ===
-    private boolean hasSpinAttack = false;
-    private boolean hasCapstoneMelee = false;
-    private boolean hasHybridRangedMelee = false;
+    private boolean hasSpinAttack = false;     // Habilidad intermedia (giro 360)
+    private boolean hasCapstoneMelee = false;  // Habilidad final (500% crítico)
+    private boolean hasHybridRangedMelee = false; // Habilidad híbrida
 
-    // === ESTADO DE COMBATE (Cooldowns y Cargas) ===
-    private boolean ultimateCharged = false; // ¿Está listo el siguiente golpe para pegar x5?
-    private int ultimateCooldown = 0;        // Tiempo restante en ticks (20 ticks = 1 segundo)
+    // === COOLDOWNS Y CARGAS ===
+    private boolean ultimateCharged = false;
+    private int ultimateCooldown = 0;
+    private int spinCooldown = 0;            // Cooldown del Ataque Giratorio (en ticks)
 
     public PlayerSkills() {}
 
@@ -32,7 +33,7 @@ public class PlayerSkills {
     public int getMeleeKills() { return meleeKills; }
     public void addMeleeKill() { this.meleeKills++; }
 
-    // --- GETTERS Y SETTERS (Arquería / Distancia) ---
+    // --- GETTERS Y SETTERS (Distancia) ---
     public int getRangedLevel() { return rangedLevel; }
     public void setRangedLevel(int level) { this.rangedLevel = Math.min(level, 100); }
     public void addRangedLevel(int amount) { setRangedLevel(this.rangedLevel + amount); }
@@ -44,7 +45,7 @@ public class PlayerSkills {
     public int getMobilityLevel() { return mobilityLevel; }
     public void setMobilityLevel(int level) { this.mobilityLevel = Math.min(level, 100); }
 
-    // --- ESTADO DE HABILIDADES ACTIVAS ---
+    // --- ESTADO DE HABILIDADES ---
     public boolean hasSpinAttack() { return hasSpinAttack; }
     public void setSpinAttack(boolean unlocked) { this.hasSpinAttack = unlocked; }
 
@@ -54,20 +55,23 @@ public class PlayerSkills {
     public boolean hasHybridRangedMelee() { return hasHybridRangedMelee; }
     public void setHybridRangedMelee(boolean unlocked) { this.hasHybridRangedMelee = unlocked; }
 
-    // --- LÓGICA DEL GOLPE DEFINITIVO (Cooldown & Carga) ---
+    // --- COOLDOWNS ---
     public boolean isUltimateCharged() { return ultimateCharged; }
     public void setUltimateCharged(boolean charged) { this.ultimateCharged = charged; }
 
     public int getUltimateCooldown() { return ultimateCooldown; }
     public void setUltimateCooldown(int cooldown) { this.ultimateCooldown = cooldown; }
 
+    public int getSpinCooldown() { return spinCooldown; }
+    public void setSpinCooldown(int cooldown) { this.spinCooldown = cooldown; }
+
+    // Descuenta ambos cooldowns cada tick
     public void tickCooldown() {
-        if (this.ultimateCooldown > 0) {
-            this.ultimateCooldown--;
-        }
+        if (this.ultimateCooldown > 0) this.ultimateCooldown--;
+        if (this.spinCooldown > 0) this.spinCooldown--;
     }
 
-    // --- COPIAR DATOS (Al morir y reaparecer) ---
+    // --- COPIAR DATOS ---
     public void copyFrom(PlayerSkills source) {
         this.meleeLevel = source.meleeLevel;
         this.rangedLevel = source.rangedLevel;
@@ -78,9 +82,10 @@ public class PlayerSkills {
         this.hasCapstoneMelee = source.hasCapstoneMelee;
         this.hasHybridRangedMelee = source.hasHybridRangedMelee;
         this.ultimateCooldown = source.ultimateCooldown;
+        this.spinCooldown = source.spinCooldown;
     }
 
-    // --- GUARDAR EN EL DISCO (NBT) ---
+    // --- GUARDAR NBT ---
     public void saveNBTData(CompoundTag nbt) {
         nbt.putInt("meleeLevel", meleeLevel);
         nbt.putInt("rangedLevel", rangedLevel);
@@ -91,9 +96,10 @@ public class PlayerSkills {
         nbt.putBoolean("hasCapstoneMelee", hasCapstoneMelee);
         nbt.putBoolean("hasHybridRangedMelee", hasHybridRangedMelee);
         nbt.putInt("ultimateCooldown", ultimateCooldown);
+        nbt.putInt("spinCooldown", spinCooldown);
     }
 
-    // --- LEER DEL DISCO (NBT) ---
+    // --- LEER NBT ---
     public void loadNBTData(CompoundTag nbt) {
         this.meleeLevel = nbt.getInt("meleeLevel");
         this.rangedLevel = nbt.getInt("rangedLevel");
@@ -104,5 +110,6 @@ public class PlayerSkills {
         this.hasCapstoneMelee = nbt.getBoolean("hasCapstoneMelee");
         this.hasHybridRangedMelee = nbt.getBoolean("hasHybridRangedMelee");
         this.ultimateCooldown = nbt.getInt("ultimateCooldown");
+        this.spinCooldown = nbt.getInt("spinCooldown");
     }
 }
