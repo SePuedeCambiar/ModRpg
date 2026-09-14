@@ -1,67 +1,70 @@
 package com.example.modrpg.networking;
 
-import com.example.modrpg.client.ClientPacketHandler;
-import com.example.modrpg.skills.PlayerSkills;
+import com.example.modrpg.skills.PlayerSkillsProvider;
 import net.minecraft.network.FriendlyByteBuf;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.fml.DistExecutor;
+import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
 import net.minecraftforge.network.NetworkEvent;
 
 import java.util.function.Supplier;
 
-public class PacketSyncSkillsToClient {
-    public final int meleeLevel;
-    public final int rangedLevel;
-    public final int mobilityLevel;
-    public final int meleeKills;
-    public final int rangedKills;
-    public final boolean hasCapstoneMelee;
-    public final boolean hasHybridRangedMelee;
+public class PacketSkillActivate {
+    public PacketSkillActivate() {}
 
-    public PacketSyncSkillsToClient(PlayerSkills skills) {
-        this.meleeLevel = skills.getMeleeLevel();
-        this.rangedLevel = skills.getRangedLevel();
-        this.mobilityLevel = skills.getMobilityLevel();
-        this.meleeKills = skills.getMeleeKills();
-        this.rangedKills = skills.getRangedKills();
-        this.hasCapstoneMelee = skills.hasCapstoneMelee();
-        this.hasHybridRangedMelee = skills.hasHybridRangedMelee();
+    public static void encode(PacketSkillActivate msg, FriendlyByteBuf buffer) {}
+
+    public static PacketSkillActivate decode(FriendlyByteBuf buffer) {
+        return new PacketSkillActivate();
     }
 
-    public PacketSyncSkillsToClient(int meleeLevel, int rangedLevel, int mobilityLevel,
-                                    int meleeKills, int rangedKills,
-                                    boolean hasCapstoneMelee, boolean hasHybridRangedMelee) {
-        this.meleeLevel = meleeLevel;
-        this.rangedLevel = rangedLevel;
-        this.mobilityLevel = mobilityLevel;
-        this.meleeKills = meleeKills;
-        this.rangedKills = rangedKills;
-        this.hasCapstoneMelee = hasCapstoneMelee;
-        this.hasHybridRangedMelee = hasHybridRangedMelee;
-    }
-
-    public static void encode(PacketSyncSkillsToClient msg, FriendlyByteBuf buf) {
-        buf.writeInt(msg.meleeLevel);
-        buf.writeInt(msg.rangedLevel);
-        buf.writeInt(msg.mobilityLevel);
-        buf.writeInt(msg.meleeKills);
-        buf.writeInt(msg.rangedKills);
-        buf.writeBoolean(msg.hasCapstoneMelee);
-        buf.writeBoolean(msg.hasHybridRangedMelee);
-    }
-
-    public static PacketSyncSkillsToClient decode(FriendlyByteBuf buf) {
-        return new PacketSyncSkillsToClient(
-                buf.readInt(), buf.readInt(), buf.readInt(),
-                buf.readInt(), buf.readInt(),
-                buf.readBoolean(), buf.readBoolean()
-        );
-    }
-
-    public static void handle(PacketSyncSkillsToClient msg, Supplier<NetworkEvent.Context> ctx) {
+    public static void handle(PacketSkillActivate msg, Supplier<NetworkEvent.Context> ctx) {
         ctx.get().enqueueWork(() -> {
-            // Ejecutamos únicamente en el lado del cliente de forma segura
-            DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () -> ClientPacketHandler.handleSync(msg));
+            ServerPlayer player = ctx.get().getSender();
+            if (player == null) return;
+
+            player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
+                if (skills.getMeleeLevel() < 10 && !skills.hasCapstoneMelee()) {
+                    player.displayClientMessage(
+                            Component.literal("§c🔒 Requiere Nivel 10 de Melee para usar el Golpe Definitivo."),
+                            true
+                    );
+                    return;
+                }
+
+                if (skills.getUltimateCooldown() > 0) {
+                    int segundos = (skills.getUltimateCooldown() / 20) + 1;
+                    player.displayClientMessage(
+                            Component.literal("§c⏳ Enfriamiento activo: §e" + segundos + "s"),
+                            true
+                    );
+                    return;
+                }
+
+                if (skills.isUltimateCharged()) {
+                    player.displayClientMessage(
+                            Component.literal("§e⚡ ¡Tu arma ya está cargada! Ataca a un enemigo."),
+                            true
+                    );
+                    return;
+                }
+
+                skills.setUltimateCharged(true);
+
+                player.level().playSound(
+                        null,
+                        player.getX(), player.getY(), player.getZ(),
+                        SoundEvents.ENDER_DRAGON_GROWL,
+                        SoundSource.PLAYERS,
+                        0.6f, 1.8f
+                );
+
+                player.displayClientMessage(
+                        Component.literal("§6§l⚡ ¡GOLPE DEFINITIVO CARGADO! §e(Próximo impacto: +500% daño)"),
+                        true
+                );
+            });
         });
         ctx.get().setPacketHandled(true);
     }
