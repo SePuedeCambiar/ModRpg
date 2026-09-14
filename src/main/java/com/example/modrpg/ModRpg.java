@@ -1,4 +1,4 @@
-package com.example.examplemod;
+package com.example.modrpg;
 
 import com.mojang.logging.LogUtils;
 import net.minecraftforge.common.MinecraftForge;
@@ -15,7 +15,6 @@ public class ModRpg {
     public ModRpg() {
         IEventBus modEventBus = FMLJavaModLoadingContext.get().getModEventBus();
 
-        // Registramos el mod en el bus de eventos de Forge
         MinecraftForge.EVENT_BUS.register(this);
 
         LOGGER.info(">>> ModRpg inicializado con éxito! <<<");
