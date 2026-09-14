@@ -44,13 +44,16 @@ public class ModEvents {
         event.getOriginal().invalidateCaps();
     }
 
-    // 3. Avisar en el chat cuando el jugador entre al mundo
+    // 3. Avisar y aplicar atributos al entrar al juego
     @SubscribeEvent
     public static void onPlayerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
-        Player player = event.getEntity();
-        player.sendSystemMessage(
-                Component.literal("§a[ModRpg] §f¡Sistema de habilidades RPG cargado con éxito!")
-        );
+        if (event.getEntity() instanceof net.minecraft.server.level.ServerPlayer serverPlayer) {
+            serverPlayer.sendSystemMessage(
+                    Component.literal("§a[ModRpg] §f¡Sistema de habilidades RPG cargado con éxito!")
+            );
+            // Aplicamos los atributos guardados
+            com.example.modrpg.skills.SkillAttributes.applyModifiers(serverPlayer);
+        }
     }
 
     // 4. DETECTAR CUANDO EL JUGADOR MATA UN MOB (Práctica)

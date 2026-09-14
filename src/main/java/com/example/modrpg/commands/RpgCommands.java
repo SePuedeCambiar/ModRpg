@@ -1,6 +1,7 @@
 package com.example.modrpg.commands;
 
 import com.example.modrpg.skills.PlayerSkillsProvider;
+import com.example.modrpg.skills.SkillAttributes;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
@@ -29,7 +30,7 @@ public class RpgCommands {
                 )
                 // Comando: /rpg addlevel <rama> <cantidad>
                 .then(Commands.literal("addlevel")
-                        .requires(source -> source.hasPermission(2)) // Requiere OP/trucos
+                        .requires(source -> source.hasPermission(2)) // Requiere OP/trucos activados
                         .then(Commands.argument("skill", StringArgumentType.word())
                                 .suggests((context, builder) -> {
                                     builder.suggest("melee");
@@ -57,6 +58,10 @@ public class RpgCommands {
                                                     player.sendSystemMessage(Component.literal("§cRama desconocida. Usa: melee, ranged o mobility"));
                                                 }
                                             });
+
+                                            // Actualizamos los atributos físicos de inmediato (fuerza, velocidad, etc.)
+                                            SkillAttributes.applyModifiers(player);
+
                                             return 1;
                                         })
                                 )
