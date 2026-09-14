@@ -1,6 +1,5 @@
 package com.example.modrpg.skills;
 
-
 import net.minecraft.nbt.CompoundTag;
 
 public class PlayerSkills {
@@ -15,9 +14,13 @@ public class PlayerSkills {
     private int rangedKills = 0;
 
     // === HABILIDADES DESBLOQUEADAS ===
-    private boolean hasSpinAttack = false;     // Habilidad secundaria (giro)
-    private boolean hasCapstoneMelee = false;  // Habilidad final (500% crítico)
-    private boolean hasHybridRangedMelee = false; // Habilidad híbrida
+    private boolean hasSpinAttack = false;
+    private boolean hasCapstoneMelee = false;
+    private boolean hasHybridRangedMelee = false;
+
+    // === ESTADO DE COMBATE (Cooldowns y Cargas) ===
+    private boolean ultimateCharged = false; // ¿Está listo el siguiente golpe para pegar x5?
+    private int ultimateCooldown = 0;        // Tiempo restante en ticks (20 ticks = 1 segundo)
 
     public PlayerSkills() {}
 
@@ -51,7 +54,20 @@ public class PlayerSkills {
     public boolean hasHybridRangedMelee() { return hasHybridRangedMelee; }
     public void setHybridRangedMelee(boolean unlocked) { this.hasHybridRangedMelee = unlocked; }
 
-    // --- COPIAR DATOS (Cuando el jugador muere y respawnea) ---
+    // --- LÓGICA DEL GOLPE DEFINITIVO (Cooldown & Carga) ---
+    public boolean isUltimateCharged() { return ultimateCharged; }
+    public void setUltimateCharged(boolean charged) { this.ultimateCharged = charged; }
+
+    public int getUltimateCooldown() { return ultimateCooldown; }
+    public void setUltimateCooldown(int cooldown) { this.ultimateCooldown = cooldown; }
+
+    public void tickCooldown() {
+        if (this.ultimateCooldown > 0) {
+            this.ultimateCooldown--;
+        }
+    }
+
+    // --- COPIAR DATOS (Al morir y reaparecer) ---
     public void copyFrom(PlayerSkills source) {
         this.meleeLevel = source.meleeLevel;
         this.rangedLevel = source.rangedLevel;
@@ -61,6 +77,7 @@ public class PlayerSkills {
         this.hasSpinAttack = source.hasSpinAttack;
         this.hasCapstoneMelee = source.hasCapstoneMelee;
         this.hasHybridRangedMelee = source.hasHybridRangedMelee;
+        this.ultimateCooldown = source.ultimateCooldown;
     }
 
     // --- GUARDAR EN EL DISCO (NBT) ---
@@ -73,6 +90,7 @@ public class PlayerSkills {
         nbt.putBoolean("hasSpinAttack", hasSpinAttack);
         nbt.putBoolean("hasCapstoneMelee", hasCapstoneMelee);
         nbt.putBoolean("hasHybridRangedMelee", hasHybridRangedMelee);
+        nbt.putInt("ultimateCooldown", ultimateCooldown);
     }
 
     // --- LEER DEL DISCO (NBT) ---
@@ -85,5 +103,6 @@ public class PlayerSkills {
         this.hasSpinAttack = nbt.getBoolean("hasSpinAttack");
         this.hasCapstoneMelee = nbt.getBoolean("hasCapstoneMelee");
         this.hasHybridRangedMelee = nbt.getBoolean("hasHybridRangedMelee");
+        this.ultimateCooldown = nbt.getInt("ultimateCooldown");
     }
 }
