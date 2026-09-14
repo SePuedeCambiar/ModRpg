@@ -4,6 +4,8 @@ import com.example.modrpg.ModRpg;
 import com.example.modrpg.commands.RpgCommands;
 import com.example.modrpg.skills.PlayerSkills;
 import com.example.modrpg.skills.PlayerSkillsProvider;
+import com.example.modrpg.skills.SkillAttributes;
+import com.example.modrpg.skills.SkillEconomy;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
@@ -25,7 +27,7 @@ import net.minecraftforge.fml.common.Mod;
 @Mod.EventBusSubscriber(modid = ModRpg.MODID)
 public class ModEvents {
 
-    // 1. Pegar la ficha de habilidades al jugador
+    // 1. Pegar la ficha de habilidades al jugador cuando se crea
     @SubscribeEvent
     public static void onAttachCapabilitiesPlayer(AttachCapabilitiesEvent<Entity> event) {
         if (event.getObject() instanceof Player) {
@@ -38,7 +40,7 @@ public class ModEvents {
         }
     }
 
-    // 2. Transferir datos al morir o cambiar dimensión
+    // 2. Transferir datos al morir o cambiar dimensión + Sincronizar al cliente
     @SubscribeEvent
     public static void onPlayerCloned(PlayerEvent.Clone event) {
         event.getOriginal().reviveCaps();
@@ -50,44 +52,52 @@ public class ModEvents {
         });
 
         event.getOriginal().invalidateCaps();
+
+        // Sincronizamos con el cliente tras revivir o cruzar portales
+        if (event.getEntity() instanceof ServerPlayer serverPlayer) {
+            SkillEconomy.syncSkills(serverPlayer);
+        }
     }
 
-    // 3. Avisar y aplicar atributos al entrar
+    // 3. Avisar, aplicar atributos y sincronizar datos al entrar
     @SubscribeEvent
     public static void onPlayerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
         if (event.getEntity() instanceof ServerPlayer serverPlayer) {
             serverPlayer.sendSystemMessage(
                     Component.literal("§a[ModRpg] §f¡Sistema de habilidades RPG cargado con éxito!")
             );
-            com.example.modrpg.skills.SkillAttributes.applyModifiers(serverPlayer);
+            SkillAttributes.applyModifiers(serverPlayer);
+            // Sincronizar datos con la GUI del cliente
+            SkillEconomy.syncSkills(serverPlayer);
         }
     }
 
-    // 4. Contador de muertes (Práctica)
+    // 4. Contador de bajas de práctica + Sincronización en tiempo real
     @SubscribeEvent
     public static void onLivingDeath(LivingDeathEvent event) {
-        if (event.getSource().getEntity() instanceof Player player) {
-            if (!player.level().isClientSide()) {
-                player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
-                    if (event.getSource().getDirectEntity() == player) {
-                        skills.addMeleeKill();
-                        player.displayClientMessage(
-                                Component.literal("§c⚔ Kills Melee: §e" + skills.getMeleeKills()),
-                                true
-                        );
-                    } else {
-                        skills.addRangedKill();
-                        player.displayClientMessage(
-                                Component.literal("§b🏹 Kills Distancia: §e" + skills.getRangedKills()),
-                                true
-                        );
-                    }
-                });
-            }
+        // Al comprobar ServerPlayer nos aseguramos de que corra solo en el servidor
+        if (event.getSource().getEntity() instanceof ServerPlayer player) {
+            player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
+                if (event.getSource().getDirectEntity() == player) {
+                    skills.addMeleeKill();
+                    player.displayClientMessage(
+                            Component.literal("§c⚔ Kills Melee: §e" + skills.getMeleeKills()),
+                            true
+                    );
+                } else {
+                    skills.addRangedKill();
+                    player.displayClientMessage(
+                            Component.literal("§b🏹 Kills Distancia: §e" + skills.getRangedKills()),
+                            true
+                    );
+                }
+                // Mantiene el contador de bajas actualizado al instante en la pantalla/GUI
+                SkillEconomy.syncSkills(player);
+            });
         }
     }
 
-    // 5. REGISTRAR COMANDOS (/rpg stats, /rpg addlevel)
+    // 5. REGISTRAR COMANDOS (/rpg stats, /rpg upgrade, /rpg addlevel)
     @SubscribeEvent
     public static void onRegisterCommands(RegisterCommandsEvent event) {
         RpgCommands.register(event.getDispatcher());
@@ -105,7 +115,6 @@ public class ModEvents {
     @SubscribeEvent
     public static void onLivingHurt(LivingHurtEvent event) {
         if (event.getSource().getEntity() instanceof ServerPlayer player) {
-            // Solo golpes cuerpo a cuerpo directos
             if (event.getSource().getDirectEntity() == player) {
                 player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
                     if (skills.isUltimateCharged()) {
@@ -123,14 +132,14 @@ public class ModEvents {
                         Entity target = event.getEntity();
                         ServerLevel level = (ServerLevel) player.level();
 
-                        // 4. Efectos visuales de explosión e impacto crítico
+                        // 4. Efectos visuales de impacto crítico y explosión
                         level.sendParticles(ParticleTypes.EXPLOSION, target.getX(), target.getY() + 1.0, target.getZ(), 2, 0.2, 0.2, 0.2, 0.0);
                         level.sendParticles(ParticleTypes.CRIT, target.getX(), target.getY() + 1.0, target.getZ(), 50, 0.5, 0.5, 0.5, 0.3);
 
-                        // 5. Sonido demoledor de impacto
+                        // 5. Sonido contundente
                         level.playSound(null, target.getX(), target.getY(), target.getZ(), SoundEvents.GENERIC_EXPLODE, SoundSource.PLAYERS, 0.8f, 1.4f);
 
-                        // 6. Mensaje con el daño total
+                        // 6. Mensaje en pantalla
                         player.displayClientMessage(
                                 Component.literal("§c§l💥 ¡IMPACTO CRÍTICO (500%)! §fDaño: §4§l" + String.format("%.1f", damageFinal)),
                                 true

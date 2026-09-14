@@ -1,5 +1,7 @@
 package com.example.modrpg.skills;
 
+import com.example.modrpg.networking.ModMessages;
+import com.example.modrpg.networking.PacketSyncSkillsToClient;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
@@ -120,6 +122,9 @@ public class SkillEconomy {
 
             // 4. VERIFICAR HITOS Y HABILIDADES ESPECIALES
             checkMilestones(player, skills);
+
+            // 5. SINCRONIZAR CON LA GUI DEL CLIENTE
+            syncSkills(player);
         });
     }
 
@@ -146,5 +151,15 @@ public class SkillEconomy {
             player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
                     SoundEvents.UI_TOAST_CHALLENGE_COMPLETE, SoundSource.PLAYERS, 1.0f, 1.0f);
         }
+    }
+
+    // Método auxiliar para enviar los datos más recientes al cliente
+    public static void syncSkills(ServerPlayer player) {
+        player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
+            ModMessages.sendToPlayer(
+                    new PacketSyncSkillsToClient(skills),
+                    player
+            );
+        });
     }
 }
