@@ -25,9 +25,10 @@ public class PacketSkillActivate {
             if (player == null) return;
 
             player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
-                if (skills.getMeleeLevel() < 10 && !skills.hasCapstoneMelee()) {
+                // Requisito real: Nivel 50 de combate cuerpo a cuerpo
+                if (skills.getMeleeLevel() < 50 && !skills.hasCapstoneMelee()) {
                     player.displayClientMessage(
-                            Component.literal("§c🔒 Requiere Nivel 10 de Melee para usar el Golpe Definitivo."),
+                            Component.literal("§c🔒 Requiere Nivel 50 de Melee para desbloquear el Golpe Definitivo."),
                             true
                     );
                     return;

@@ -21,7 +21,7 @@ public class PlayerSkills {
     // === COOLDOWNS Y CARGAS ===
     private boolean ultimateCharged = false;
     private int ultimateCooldown = 0;
-    private int spinCooldown = 0;            // Cooldown del Ataque Giratorio (en ticks)
+    private int spinCooldown = 0;
 
     public PlayerSkills() {}
 
@@ -31,6 +31,7 @@ public class PlayerSkills {
     public void addMeleeLevel(int amount) { setMeleeLevel(this.meleeLevel + amount); }
 
     public int getMeleeKills() { return meleeKills; }
+    public void setMeleeKills(int kills) { this.meleeKills = kills; }
     public void addMeleeKill() { this.meleeKills++; }
 
     // --- GETTERS Y SETTERS (Distancia) ---
@@ -39,6 +40,7 @@ public class PlayerSkills {
     public void addRangedLevel(int amount) { setRangedLevel(this.rangedLevel + amount); }
 
     public int getRangedKills() { return rangedKills; }
+    public void setRangedKills(int kills) { this.rangedKills = kills; }
     public void addRangedKill() { this.rangedKills++; }
 
     // --- GETTERS Y SETTERS (Movilidad) ---
@@ -65,13 +67,12 @@ public class PlayerSkills {
     public int getSpinCooldown() { return spinCooldown; }
     public void setSpinCooldown(int cooldown) { this.spinCooldown = cooldown; }
 
-    // Descuenta ambos cooldowns cada tick
     public void tickCooldown() {
         if (this.ultimateCooldown > 0) this.ultimateCooldown--;
         if (this.spinCooldown > 0) this.spinCooldown--;
     }
 
-    // --- COPIAR DATOS ---
+    // --- COPIAR DATOS TRAS MORIR ---
     public void copyFrom(PlayerSkills source) {
         this.meleeLevel = source.meleeLevel;
         this.rangedLevel = source.rangedLevel;

@@ -13,9 +13,8 @@ public class ClientPacketHandler {
                 skills.setMeleeLevel(msg.meleeLevel);
                 skills.setRangedLevel(msg.rangedLevel);
                 skills.setMobilityLevel(msg.mobilityLevel);
-                // Asignamos las bajas acumuladas
-                while (skills.getMeleeKills() < msg.meleeKills) skills.addMeleeKill();
-                while (skills.getRangedKills() < msg.rangedKills) skills.addRangedKill();
+                skills.setMeleeKills(msg.meleeKills);
+                skills.setRangedKills(msg.rangedKills);
                 skills.setCapstoneMelee(msg.hasCapstoneMelee);
                 skills.setHybridRangedMelee(msg.hasHybridRangedMelee);
             });

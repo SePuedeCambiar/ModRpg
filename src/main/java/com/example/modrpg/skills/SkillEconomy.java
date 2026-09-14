@@ -9,8 +9,13 @@ public class SkillEconomy {
 
     public static final int MAX_LEVEL = 100;
 
+    /**
+     * Fórmula que escala desde 1 nivel de XP (Nivel 0) hasta 100 niveles exactos de XP (Nivel 99 -> 100).
+     */
     public static int getXpCost(int currentLevel) {
-        return Math.max(1, 1 + (int)(currentLevel * 0.45));
+        if (currentLevel >= MAX_LEVEL) return 100;
+        double progress = (double) currentLevel / 99.0;
+        return Math.max(1, (int) Math.round(1.0 + Math.pow(progress, 1.6) * 99.0));
     }
 
     public static int getRequiredKills(int nextLevel) {
@@ -131,8 +136,8 @@ public class SkillEconomy {
         if (skills.getMeleeLevel() >= 25 && skills.getRangedLevel() >= 25 && !skills.hasHybridRangedMelee()) {
             skills.setHybridRangedMelee(true);
             player.sendSystemMessage(Component.literal(
-                    "§d§l★ ¡RAMA HÍBRIDA DESBLOQUEADA! ★\n" +
-                            "§5Has dominado el combate dual: Melee + Arquería."
+                    "§d§l★ ¡RAMA HÍBRIDA DESBLOQUEADA: COMBO DEL CAZADOR! ★\n" +
+                            "§5Dispara una flecha para marcar al enemigo (§dBrillo§5). Si lo rematas cuerpo a cuerpo, provocas una §d¡Detonación de Vacío!§5"
             ));
             player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
                     SoundEvents.UI_TOAST_CHALLENGE_COMPLETE, SoundSource.PLAYERS, 1.0f, 1.0f);
