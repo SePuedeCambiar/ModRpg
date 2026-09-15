@@ -24,6 +24,7 @@ import net.minecraft.world.entity.projectile.FireworkRocketEntity;
 import net.minecraftforge.event.AttachCapabilitiesEvent;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.TickEvent;
+import net.minecraftforge.event.entity.EntityJoinLevelEvent;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.event.entity.living.LivingHurtEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
@@ -35,6 +36,7 @@ public class ModEvents {
 
     private static final String HYBRID_MARK_TAG = "modrpg_hunter_mark";
     private static final String DOUBLE_ATTACK_RECURSION_TAG = "modrpg_double_slice_hit";
+    private static final String HYPERSONIC_ARROW_TAG = "modrpg_hypersonic_arrow";
 
     @SuppressWarnings({"removal", "deprecation"})
     @SubscribeEvent
@@ -111,6 +113,54 @@ public class ModEvents {
         }
     }
 
+    // =========================================================================
+    // RAMA 2: DISPARO DE FLECHAS (VIENTO A FAVOR & HIPERSÓNICA)
+    // =========================================================================
+    @SubscribeEvent
+    public static void onArrowSpawn(EntityJoinLevelEvent event) {
+        if (!event.getLevel().isClientSide() && event.getEntity() instanceof AbstractArrow arrow) {
+            if (arrow.getOwner() instanceof ServerPlayer player) {
+                player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
+
+                    // 1. VIENTO A FAVOR (Nivel 5+): Aumenta velocidad y suelta ráfaga blanca
+                    if (skills.hasTailwind()) {
+                        ServerLevel level = (ServerLevel) player.level();
+
+                        // Aceleración de trayectoria (+80%)
+                        arrow.setDeltaMovement(arrow.getDeltaMovement().scale(1.8));
+
+                        // Ráfaga blanca de viento saliendo de la punta de la flecha
+                        level.sendParticles(ParticleTypes.CLOUD, arrow.getX(), arrow.getY(), arrow.getZ(), 12, 0.2, 0.2, 0.2, 0.08);
+                        level.sendParticles(ParticleTypes.SWEEP_ATTACK, arrow.getX(), arrow.getY(), arrow.getZ(), 1, 0, 0, 0, 0);
+
+                        player.displayClientMessage(
+                                Component.literal("§b💨 ¡Viento a Favor activado! (+80% Velocidad)"),
+                                true
+                        );
+
+                        // 2. TIRO HIPERSÓNICO (Nivel 50+): Si dispara agachado (Sneak / Shift)
+                        if (skills.hasHypersonicArrow() && player.isShiftKeyDown()) {
+                            // Aceleración supersónica (2.5x total)
+                            arrow.setDeltaMovement(arrow.getDeltaMovement().scale(1.5));
+                            arrow.setPierceLevel((byte) 5); // Atraviesa hasta 5 enemigos en fila
+                            arrow.setNoGravity(true);       // Trayectoria horizontal recta
+                            arrow.addTag(HYPERSONIC_ARROW_TAG);
+
+                            level.playSound(null, player.getX(), player.getY(), player.getZ(),
+                                    SoundEvents.WARDEN_SONIC_BOOM, SoundSource.PLAYERS, 0.9f, 1.8f);
+                            level.sendParticles(ParticleTypes.SONIC_BOOM, player.getX(), player.getEyeY(), player.getZ(), 1, 0, 0, 0, 0);
+
+                            player.displayClientMessage(
+                                    Component.literal("§9§l⚡ ¡TIRO HIPERSÓNICO! §f(Perforación V activada)"),
+                                    true
+                            );
+                        }
+                    }
+                });
+            }
+        }
+    }
+
     @SubscribeEvent
     public static void onLivingHurt(LivingHurtEvent event) {
         Entity attacker = event.getSource().getEntity();
@@ -120,7 +170,6 @@ public class ModEvents {
         if (!(attacker instanceof ServerPlayer player)) return;
         ServerLevel level = (ServerLevel) player.level();
 
-        // Evitar bucle infinito cuando se ejecuta el segundo impacto del doble ataque
         if (target.getTags().contains(DOUBLE_ATTACK_RECURSION_TAG)) {
             target.removeTag(DOUBLE_ATTACK_RECURSION_TAG);
             return;
@@ -128,14 +177,21 @@ public class ModEvents {
 
         player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
 
-            // 1. COMBATE A DISTANCIA (FLECHAS)
-            if (directEntity instanceof AbstractArrow) {
+            // 1. IMPACTO DE FLECHAS
+            if (directEntity instanceof AbstractArrow arrow) {
                 int rangedLvl = skills.getRangedLevel();
                 if (rangedLvl > 0) {
                     float bonusMultiplier = 1.0f + (float) Math.pow(rangedLvl / 100.0, 1.5) * 2.5f;
                     event.setAmount(event.getAmount() * bonusMultiplier);
                 }
 
+                // Impacto de Tiro Hipersónico
+                if (arrow.getTags().contains(HYPERSONIC_ARROW_TAG)) {
+                    level.sendParticles(ParticleTypes.ELECTRIC_SPARK, target.getX(), target.getY() + 1.0, target.getZ(), 30, 0.4, 0.4, 0.4, 0.15);
+                    level.playSound(null, target.getX(), target.getY(), target.getZ(), SoundEvents.LIGHTNING_BOLT_THUNDER, SoundSource.PLAYERS, 0.8f, 2.0f);
+                }
+
+                // Marca del cazador (Híbrida)
                 if (skills.hasHybridRangedMelee()) {
                     target.addTag(HYBRID_MARK_TAG);
                     target.addEffect(new MobEffectInstance(MobEffects.GLOWING, 120, 0, false, false));
@@ -179,7 +235,7 @@ public class ModEvents {
                 // B) GOLPE DEFINITIVO (TECLA [R])
                 if (skills.isUltimateCharged()) {
                     skills.setUltimateCharged(false);
-                    skills.setUltimateCooldown(6000); // 5 minutos
+                    skills.setUltimateCooldown(6000);
 
                     float damageFinal = event.getAmount() * 5.0f;
                     event.setAmount(damageFinal);
@@ -195,20 +251,16 @@ public class ModEvents {
                     return;
                 }
 
-                // C) HABILIDAD PRIMARIA: DOBLE ATAQUE (NIVEL 4 CaC)
-                // Se activa si tiene la habilidad desbloqueada y atacó con la barra de carga llena
+                // C) DOBLE ATAQUE (NIVEL 4 CaC)
                 if (skills.hasDoubleAttack() && player.getAttackStrengthScale(0.5f) >= 0.92f) {
-                    // Primer golpe: -20% de daño (80%)
                     float singleHitDamage = event.getAmount() * 0.80f;
                     event.setAmount(singleHitDamage);
 
-                    // Preparamos y asestamos el segundo impacto consecutivo
                     target.addTag(DOUBLE_ATTACK_RECURSION_TAG);
-                    target.invulnerableTime = 0; // Rompe la inmunidad para que el segundo golpe conecte
+                    target.invulnerableTime = 0;
                     target.hurt(player.damageSources().playerAttack(player), singleHitDamage);
                     target.invulnerableTime = 10;
 
-                    // Efectos visuales de combo de tajos
                     player.swing(InteractionHand.MAIN_HAND, true);
                     level.sendParticles(ParticleTypes.SWEEP_ATTACK, target.getX(), target.getY() + 0.9, target.getZ(), 2, 0.2, 0.2, 0.2, 0.0);
                     level.sendParticles(ParticleTypes.CRIT, target.getX(), target.getY() + 0.9, target.getZ(), 12, 0.25, 0.25, 0.25, 0.1);

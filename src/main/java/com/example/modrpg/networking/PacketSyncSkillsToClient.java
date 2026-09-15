@@ -18,6 +18,8 @@ public class PacketSyncSkillsToClient {
     public final boolean hasDoubleAttack;
     public final boolean hasSpinAttack;
     public final boolean hasCapstoneMelee;
+    public final boolean hasTailwind;
+    public final boolean hasHypersonicArrow;
     public final boolean hasHybridRangedMelee;
 
     public PacketSyncSkillsToClient(PlayerSkills skills) {
@@ -29,13 +31,16 @@ public class PacketSyncSkillsToClient {
         this.hasDoubleAttack = skills.hasDoubleAttack();
         this.hasSpinAttack = skills.hasSpinAttack();
         this.hasCapstoneMelee = skills.hasCapstoneMelee();
+        this.hasTailwind = skills.hasTailwind();
+        this.hasHypersonicArrow = skills.hasHypersonicArrow();
         this.hasHybridRangedMelee = skills.hasHybridRangedMelee();
     }
 
     public PacketSyncSkillsToClient(int meleeLevel, int rangedLevel, int mobilityLevel,
                                     int meleeKills, int rangedKills,
                                     boolean hasDoubleAttack, boolean hasSpinAttack,
-                                    boolean hasCapstoneMelee, boolean hasHybridRangedMelee) {
+                                    boolean hasCapstoneMelee, boolean hasTailwind,
+                                    boolean hasHypersonicArrow, boolean hasHybridRangedMelee) {
         this.meleeLevel = meleeLevel;
         this.rangedLevel = rangedLevel;
         this.mobilityLevel = mobilityLevel;
@@ -44,6 +49,8 @@ public class PacketSyncSkillsToClient {
         this.hasDoubleAttack = hasDoubleAttack;
         this.hasSpinAttack = hasSpinAttack;
         this.hasCapstoneMelee = hasCapstoneMelee;
+        this.hasTailwind = hasTailwind;
+        this.hasHypersonicArrow = hasHypersonicArrow;
         this.hasHybridRangedMelee = hasHybridRangedMelee;
     }
 
@@ -56,6 +63,8 @@ public class PacketSyncSkillsToClient {
         buf.writeBoolean(msg.hasDoubleAttack);
         buf.writeBoolean(msg.hasSpinAttack);
         buf.writeBoolean(msg.hasCapstoneMelee);
+        buf.writeBoolean(msg.hasTailwind);
+        buf.writeBoolean(msg.hasHypersonicArrow);
         buf.writeBoolean(msg.hasHybridRangedMelee);
     }
 
@@ -63,6 +72,7 @@ public class PacketSyncSkillsToClient {
         return new PacketSyncSkillsToClient(
                 buf.readInt(), buf.readInt(), buf.readInt(),
                 buf.readInt(), buf.readInt(),
+                buf.readBoolean(), buf.readBoolean(),
                 buf.readBoolean(), buf.readBoolean(),
                 buf.readBoolean(), buf.readBoolean()
         );

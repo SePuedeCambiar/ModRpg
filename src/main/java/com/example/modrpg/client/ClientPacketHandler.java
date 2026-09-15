@@ -18,6 +18,8 @@ public class ClientPacketHandler {
                 skills.setDoubleAttack(msg.hasDoubleAttack);
                 skills.setSpinAttack(msg.hasSpinAttack);
                 skills.setCapstoneMelee(msg.hasCapstoneMelee);
+                skills.setTailwind(msg.hasTailwind);
+                skills.setHypersonicArrow(msg.hasHypersonicArrow);
                 skills.setHybridRangedMelee(msg.hasHybridRangedMelee);
             });
         }

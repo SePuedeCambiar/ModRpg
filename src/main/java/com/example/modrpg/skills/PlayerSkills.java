@@ -13,17 +13,13 @@ public class PlayerSkills {
     private int meleeKills = 0;
     private int rangedKills = 0;
 
-    // === HABILIDADES DESBLOQUEADAS (Rama 1: CaC) ===
-    private boolean hasDoubleAttack = false;   // Nivel 4 CaC
-    private boolean hasSpinAttack = false;     // Nivel 20 CaC
-    private boolean hasCapstoneMelee = false;  // Nivel 50 CaC
-
-    // === HABILIDADES DESBLOQUEADAS (Rama 2: Arquería) ===
-    private boolean hasTailwind = false;        // Habilidad #1: Viento a Favor (Nivel 5)
-    private boolean hasHypersonicArrow = false; // Habilidad Maestra: Tiro Hipersónico (Nivel 50)
-
-    // === HÍBRIDAS ===
-    private boolean hasHybridRangedMelee = false; // Nivel 25 CaC + 25 Distancia
+    // === HABILIDADES DESBLOQUEADAS ===
+    private boolean hasDoubleAttack = false;
+    private boolean hasSpinAttack = false;
+    private boolean hasCapstoneMelee = false;
+    private boolean hasTailwind = false;
+    private boolean hasHypersonicArrow = false;
+    private boolean hasHybridRangedMelee = false;
 
     // === COOLDOWNS Y CARGAS ===
     private boolean ultimateCharged = false;
@@ -54,25 +50,23 @@ public class PlayerSkills {
     public int getMobilityLevel() { return mobilityLevel; }
     public void setMobilityLevel(int level) { this.mobilityLevel = Math.min(level, 100); }
 
-    // --- ESTADO DE HABILIDADES RAMA 1 ---
-    public boolean hasDoubleAttack() { return hasDoubleAttack; }
+    // --- ESTADO DE HABILIDADES CON VALIDACIÓN AUTOMÁTICA POR NIVEL ---
+    public boolean hasDoubleAttack() { return hasDoubleAttack || meleeLevel >= 4; }
     public void setDoubleAttack(boolean unlocked) { this.hasDoubleAttack = unlocked; }
 
-    public boolean hasSpinAttack() { return hasSpinAttack; }
+    public boolean hasSpinAttack() { return hasSpinAttack || meleeLevel >= 20; }
     public void setSpinAttack(boolean unlocked) { this.hasSpinAttack = unlocked; }
 
-    public boolean hasCapstoneMelee() { return hasCapstoneMelee; }
+    public boolean hasCapstoneMelee() { return hasCapstoneMelee || meleeLevel >= 50; }
     public void setCapstoneMelee(boolean unlocked) { this.hasCapstoneMelee = unlocked; }
 
-    // --- ESTADO DE HABILIDADES RAMA 2 ---
-    public boolean hasTailwind() { return hasTailwind; }
+    public boolean hasTailwind() { return hasTailwind || rangedLevel >= 5; }
     public void setTailwind(boolean unlocked) { this.hasTailwind = unlocked; }
 
-    public boolean hasHypersonicArrow() { return hasHypersonicArrow; }
+    public boolean hasHypersonicArrow() { return hasHypersonicArrow || rangedLevel >= 50; }
     public void setHypersonicArrow(boolean unlocked) { this.hasHypersonicArrow = unlocked; }
 
-    // --- HÍBRIDAS ---
-    public boolean hasHybridRangedMelee() { return hasHybridRangedMelee; }
+    public boolean hasHybridRangedMelee() { return hasHybridRangedMelee || (meleeLevel >= 25 && rangedLevel >= 25); }
     public void setHybridRangedMelee(boolean unlocked) { this.hasHybridRangedMelee = unlocked; }
 
     // --- COOLDOWNS ---
@@ -90,7 +84,7 @@ public class PlayerSkills {
         if (this.spinCooldown > 0) this.spinCooldown--;
     }
 
-    // --- COPIAR DATOS ---
+    // --- COPIAR DATOS TRAS MORIR ---
     public void copyFrom(PlayerSkills source) {
         this.meleeLevel = source.meleeLevel;
         this.rangedLevel = source.rangedLevel;

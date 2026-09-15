@@ -70,7 +70,6 @@ public class SkillEconomy {
                 return;
             }
 
-            // Cobrar XP y subir nivel
             player.giveExperienceLevels(-xpCost);
 
             switch (b) {
@@ -107,18 +106,17 @@ public class SkillEconomy {
     }
 
     private static void checkMilestones(ServerPlayer player, PlayerSkills skills) {
-        // HITO DIAGRAMA 1: Nivel 4 Melee desbloquea DOBLE ATAQUE (Pentágono Rojo)
+        // --- HITOS RAMA 1: CUERPO A CUERPO ---
         if (skills.getMeleeLevel() >= 4 && !skills.hasDoubleAttack()) {
             skills.setDoubleAttack(true);
             player.sendSystemMessage(Component.literal(
                     "§c§l★ ¡HABILIDAD PRIMARIA DESBLOQUEADA! ★\n" +
-                            "§6Has dominado el §c§lDoble Ataque§6. ¡Al golpear con la barra al 100% asestarás dos cortes consecutivos!"
+                            "§6Has dominado el §c§lDoble Ataque§6. ¡Ataca con la barra al 100% para asestar 2 cortes rápidos!"
             ));
             player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
                     SoundEvents.UI_TOAST_CHALLENGE_COMPLETE, SoundSource.PLAYERS, 1.0f, 1.0f);
         }
 
-        // HITO DIAGRAMA 2: Nivel 20 Melee desbloquea el Ataque Giratorio (Torbellino)
         if (skills.getMeleeLevel() >= 20 && !skills.hasSpinAttack()) {
             skills.setSpinAttack(true);
             player.sendSystemMessage(Component.literal(
@@ -129,7 +127,6 @@ public class SkillEconomy {
                     SoundEvents.UI_TOAST_CHALLENGE_COMPLETE, SoundSource.PLAYERS, 1.0f, 1.0f);
         }
 
-        // HITO DIAGRAMA 3: Nivel 50 Melee desbloquea Golpe Definitivo (+500%)
         if (skills.getMeleeLevel() >= 50 && !skills.hasCapstoneMelee()) {
             skills.setCapstoneMelee(true);
             player.sendSystemMessage(Component.literal(
@@ -140,12 +137,35 @@ public class SkillEconomy {
                     SoundEvents.UI_TOAST_CHALLENGE_COMPLETE, SoundSource.PLAYERS, 1.0f, 1.0f);
         }
 
-        // HITO HÍBRIDO: Nivel 25 Melee + 25 Distancia
+        // --- HITOS RAMA 2: ARQUERÍA (DEL DIAGRAMA) ---
+        // Habilidad #1: Viento a Favor (Nivel 5)
+        if (skills.getRangedLevel() >= 5 && !skills.hasTailwind()) {
+            skills.setTailwind(true);
+            player.sendSystemMessage(Component.literal(
+                    "§b§l★ ¡HABILIDAD DE ARQUERÍA DESBLOQUEADA! ★\n" +
+                            "§3Has aprendido §bViento a Favor§3: las flechas totalmente cargadas viajan un §f+70% más rápido§3 y en línea recta."
+            ));
+            player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
+                    SoundEvents.UI_TOAST_CHALLENGE_COMPLETE, SoundSource.PLAYERS, 1.0f, 1.0f);
+        }
+
+        // Habilidad Maestra: Tiro Hipersónico (Nivel 50)
+        if (skills.getRangedLevel() >= 50 && !skills.hasHypersonicArrow()) {
+            skills.setHypersonicArrow(true);
+            player.sendSystemMessage(Component.literal(
+                    "§9§l★ ¡HABILIDAD MAESTRA DE ARQUERÍA DESBLOQUEADA! ★\n" +
+                            "§1Has desbloqueado el §9Tiro Hipersónico§1: dispara agachado (Sneak) para un tiro que viaja a velocidad de bala y atraviesa 3 enemigos."
+            ));
+            player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
+                    SoundEvents.UI_TOAST_CHALLENGE_COMPLETE, SoundSource.PLAYERS, 1.0f, 1.0f);
+        }
+
+        // --- HITO HÍBRIDO ---
         if (skills.getMeleeLevel() >= 25 && skills.getRangedLevel() >= 25 && !skills.hasHybridRangedMelee()) {
             skills.setHybridRangedMelee(true);
             player.sendSystemMessage(Component.literal(
                     "§d§l★ ¡COMBO HÍBRIDO DEL CAZADOR DESBLOQUEADO! ★\n" +
-                            "§5Flechas marcan al objetivo; remátalo cuerpo a cuerpo para una §dDetonación de Vacío§5."
+                            "§5Flechas marcan con brillo; golpéalos cuerpo a cuerpo para una §dDetonación de Vacío§5."
             ));
             player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
                     SoundEvents.UI_TOAST_CHALLENGE_COMPLETE, SoundSource.PLAYERS, 1.0f, 1.0f);
