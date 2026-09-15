@@ -15,6 +15,8 @@ public class PacketSyncSkillsToClient {
     public final int mobilityLevel;
     public final int meleeKills;
     public final int rangedKills;
+    public final boolean hasDoubleAttack;
+    public final boolean hasSpinAttack;
     public final boolean hasCapstoneMelee;
     public final boolean hasHybridRangedMelee;
 
@@ -24,18 +26,23 @@ public class PacketSyncSkillsToClient {
         this.mobilityLevel = skills.getMobilityLevel();
         this.meleeKills = skills.getMeleeKills();
         this.rangedKills = skills.getRangedKills();
+        this.hasDoubleAttack = skills.hasDoubleAttack();
+        this.hasSpinAttack = skills.hasSpinAttack();
         this.hasCapstoneMelee = skills.hasCapstoneMelee();
         this.hasHybridRangedMelee = skills.hasHybridRangedMelee();
     }
 
     public PacketSyncSkillsToClient(int meleeLevel, int rangedLevel, int mobilityLevel,
                                     int meleeKills, int rangedKills,
+                                    boolean hasDoubleAttack, boolean hasSpinAttack,
                                     boolean hasCapstoneMelee, boolean hasHybridRangedMelee) {
         this.meleeLevel = meleeLevel;
         this.rangedLevel = rangedLevel;
         this.mobilityLevel = mobilityLevel;
         this.meleeKills = meleeKills;
         this.rangedKills = rangedKills;
+        this.hasDoubleAttack = hasDoubleAttack;
+        this.hasSpinAttack = hasSpinAttack;
         this.hasCapstoneMelee = hasCapstoneMelee;
         this.hasHybridRangedMelee = hasHybridRangedMelee;
     }
@@ -46,6 +53,8 @@ public class PacketSyncSkillsToClient {
         buf.writeInt(msg.mobilityLevel);
         buf.writeInt(msg.meleeKills);
         buf.writeInt(msg.rangedKills);
+        buf.writeBoolean(msg.hasDoubleAttack);
+        buf.writeBoolean(msg.hasSpinAttack);
         buf.writeBoolean(msg.hasCapstoneMelee);
         buf.writeBoolean(msg.hasHybridRangedMelee);
     }
@@ -54,6 +63,7 @@ public class PacketSyncSkillsToClient {
         return new PacketSyncSkillsToClient(
                 buf.readInt(), buf.readInt(), buf.readInt(),
                 buf.readInt(), buf.readInt(),
+                buf.readBoolean(), buf.readBoolean(),
                 buf.readBoolean(), buf.readBoolean()
         );
     }

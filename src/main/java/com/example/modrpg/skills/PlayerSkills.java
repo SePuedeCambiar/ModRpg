@@ -13,10 +13,17 @@ public class PlayerSkills {
     private int meleeKills = 0;
     private int rangedKills = 0;
 
-    // === HABILIDADES DESBLOQUEADAS ===
-    private boolean hasSpinAttack = false;     // Habilidad intermedia (giro 360)
-    private boolean hasCapstoneMelee = false;  // Habilidad final (500% crítico)
-    private boolean hasHybridRangedMelee = false; // Habilidad híbrida
+    // === HABILIDADES DESBLOQUEADAS (Rama 1: CaC) ===
+    private boolean hasDoubleAttack = false;   // Nivel 4 CaC
+    private boolean hasSpinAttack = false;     // Nivel 20 CaC
+    private boolean hasCapstoneMelee = false;  // Nivel 50 CaC
+
+    // === HABILIDADES DESBLOQUEADAS (Rama 2: Arquería) ===
+    private boolean hasTailwind = false;        // Habilidad #1: Viento a Favor (Nivel 5)
+    private boolean hasHypersonicArrow = false; // Habilidad Maestra: Tiro Hipersónico (Nivel 50)
+
+    // === HÍBRIDAS ===
+    private boolean hasHybridRangedMelee = false; // Nivel 25 CaC + 25 Distancia
 
     // === COOLDOWNS Y CARGAS ===
     private boolean ultimateCharged = false;
@@ -47,13 +54,24 @@ public class PlayerSkills {
     public int getMobilityLevel() { return mobilityLevel; }
     public void setMobilityLevel(int level) { this.mobilityLevel = Math.min(level, 100); }
 
-    // --- ESTADO DE HABILIDADES ---
+    // --- ESTADO DE HABILIDADES RAMA 1 ---
+    public boolean hasDoubleAttack() { return hasDoubleAttack; }
+    public void setDoubleAttack(boolean unlocked) { this.hasDoubleAttack = unlocked; }
+
     public boolean hasSpinAttack() { return hasSpinAttack; }
     public void setSpinAttack(boolean unlocked) { this.hasSpinAttack = unlocked; }
 
     public boolean hasCapstoneMelee() { return hasCapstoneMelee; }
     public void setCapstoneMelee(boolean unlocked) { this.hasCapstoneMelee = unlocked; }
 
+    // --- ESTADO DE HABILIDADES RAMA 2 ---
+    public boolean hasTailwind() { return hasTailwind; }
+    public void setTailwind(boolean unlocked) { this.hasTailwind = unlocked; }
+
+    public boolean hasHypersonicArrow() { return hasHypersonicArrow; }
+    public void setHypersonicArrow(boolean unlocked) { this.hasHypersonicArrow = unlocked; }
+
+    // --- HÍBRIDAS ---
     public boolean hasHybridRangedMelee() { return hasHybridRangedMelee; }
     public void setHybridRangedMelee(boolean unlocked) { this.hasHybridRangedMelee = unlocked; }
 
@@ -72,15 +90,18 @@ public class PlayerSkills {
         if (this.spinCooldown > 0) this.spinCooldown--;
     }
 
-    // --- COPIAR DATOS TRAS MORIR ---
+    // --- COPIAR DATOS ---
     public void copyFrom(PlayerSkills source) {
         this.meleeLevel = source.meleeLevel;
         this.rangedLevel = source.rangedLevel;
         this.mobilityLevel = source.mobilityLevel;
         this.meleeKills = source.meleeKills;
         this.rangedKills = source.rangedKills;
+        this.hasDoubleAttack = source.hasDoubleAttack;
         this.hasSpinAttack = source.hasSpinAttack;
         this.hasCapstoneMelee = source.hasCapstoneMelee;
+        this.hasTailwind = source.hasTailwind;
+        this.hasHypersonicArrow = source.hasHypersonicArrow;
         this.hasHybridRangedMelee = source.hasHybridRangedMelee;
         this.ultimateCooldown = source.ultimateCooldown;
         this.spinCooldown = source.spinCooldown;
@@ -93,8 +114,11 @@ public class PlayerSkills {
         nbt.putInt("mobilityLevel", mobilityLevel);
         nbt.putInt("meleeKills", meleeKills);
         nbt.putInt("rangedKills", rangedKills);
+        nbt.putBoolean("hasDoubleAttack", hasDoubleAttack);
         nbt.putBoolean("hasSpinAttack", hasSpinAttack);
         nbt.putBoolean("hasCapstoneMelee", hasCapstoneMelee);
+        nbt.putBoolean("hasTailwind", hasTailwind);
+        nbt.putBoolean("hasHypersonicArrow", hasHypersonicArrow);
         nbt.putBoolean("hasHybridRangedMelee", hasHybridRangedMelee);
         nbt.putInt("ultimateCooldown", ultimateCooldown);
         nbt.putInt("spinCooldown", spinCooldown);
@@ -107,8 +131,11 @@ public class PlayerSkills {
         this.mobilityLevel = nbt.getInt("mobilityLevel");
         this.meleeKills = nbt.getInt("meleeKills");
         this.rangedKills = nbt.getInt("rangedKills");
+        this.hasDoubleAttack = nbt.getBoolean("hasDoubleAttack");
         this.hasSpinAttack = nbt.getBoolean("hasSpinAttack");
         this.hasCapstoneMelee = nbt.getBoolean("hasCapstoneMelee");
+        this.hasTailwind = nbt.getBoolean("hasTailwind");
+        this.hasHypersonicArrow = nbt.getBoolean("hasHypersonicArrow");
         this.hasHybridRangedMelee = nbt.getBoolean("hasHybridRangedMelee");
         this.ultimateCooldown = nbt.getInt("ultimateCooldown");
         this.spinCooldown = nbt.getInt("spinCooldown");

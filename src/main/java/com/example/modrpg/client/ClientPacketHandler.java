@@ -15,6 +15,8 @@ public class ClientPacketHandler {
                 skills.setMobilityLevel(msg.mobilityLevel);
                 skills.setMeleeKills(msg.meleeKills);
                 skills.setRangedKills(msg.rangedKills);
+                skills.setDoubleAttack(msg.hasDoubleAttack);
+                skills.setSpinAttack(msg.hasSpinAttack);
                 skills.setCapstoneMelee(msg.hasCapstoneMelee);
                 skills.setHybridRangedMelee(msg.hasHybridRangedMelee);
             });

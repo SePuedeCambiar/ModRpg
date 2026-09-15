@@ -9,9 +9,6 @@ public class SkillEconomy {
 
     public static final int MAX_LEVEL = 100;
 
-    /**
-     * Fórmula que escala desde 1 nivel de XP (Nivel 0) hasta 100 niveles exactos de XP (Nivel 99 -> 100).
-     */
     public static int getXpCost(int currentLevel) {
         if (currentLevel >= MAX_LEVEL) return 100;
         double progress = (double) currentLevel / 99.0;
@@ -25,8 +22,8 @@ public class SkillEconomy {
     public static void upgradeBranch(ServerPlayer player, String branch) {
         player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
             String b = branch.toLowerCase();
-            int currentLevel = 0;
-            int playerKills = 0;
+            int currentLevel;
+            int playerKills;
 
             switch (b) {
                 case "melee":
@@ -110,34 +107,45 @@ public class SkillEconomy {
     }
 
     private static void checkMilestones(ServerPlayer player, PlayerSkills skills) {
-        // HITO 1: Nivel 20 Melee desbloquea el Ataque Giratorio (Spin Attack)
-        if (skills.getMeleeLevel() >= 20 && !skills.hasSpinAttack()) {
-            skills.setSpinAttack(true);
+        // HITO DIAGRAMA 1: Nivel 4 Melee desbloquea DOBLE ATAQUE (Pentágono Rojo)
+        if (skills.getMeleeLevel() >= 4 && !skills.hasDoubleAttack()) {
+            skills.setDoubleAttack(true);
             player.sendSystemMessage(Component.literal(
-                    "§b§l★ ¡HABILIDAD DESBLOQUEADA! ★\n" +
-                            "§3Has desbloqueado el §bAtaque Giratorio§3. ¡Presiona §f[V] §3para barrer enemigos en 360°!"
+                    "§c§l★ ¡HABILIDAD PRIMARIA DESBLOQUEADA! ★\n" +
+                            "§6Has dominado el §c§lDoble Ataque§6. ¡Al golpear con la barra al 100% asestarás dos cortes consecutivos!"
             ));
             player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
                     SoundEvents.UI_TOAST_CHALLENGE_COMPLETE, SoundSource.PLAYERS, 1.0f, 1.0f);
         }
 
-        // HITO 2: Nivel 50 Melee desbloquea el Golpe Definitivo (+500%)
+        // HITO DIAGRAMA 2: Nivel 20 Melee desbloquea el Ataque Giratorio (Torbellino)
+        if (skills.getMeleeLevel() >= 20 && !skills.hasSpinAttack()) {
+            skills.setSpinAttack(true);
+            player.sendSystemMessage(Component.literal(
+                    "§b§l★ ¡HABILIDAD SECUNDARIA DESBLOQUEADA! ★\n" +
+                            "§3Has desbloqueado el §bAtaque Giratorio§3. ¡Presiona §f[V] §3para barrer en 360°!"
+            ));
+            player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
+                    SoundEvents.UI_TOAST_CHALLENGE_COMPLETE, SoundSource.PLAYERS, 1.0f, 1.0f);
+        }
+
+        // HITO DIAGRAMA 3: Nivel 50 Melee desbloquea Golpe Definitivo (+500%)
         if (skills.getMeleeLevel() >= 50 && !skills.hasCapstoneMelee()) {
             skills.setCapstoneMelee(true);
             player.sendSystemMessage(Component.literal(
-                    "§6§l★ ¡HABILIDAD MAESTRA DESBLOQUEADA! ★\n" +
+                    "§6§l★ ¡HABILIDAD DEFINITIVA DESBLOQUEADA! ★\n" +
                             "§eHas desbloqueado el §6Golpe Definitivo§e. ¡Presiona §f[R] §epara cargar un 500% de daño!"
             ));
             player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
                     SoundEvents.UI_TOAST_CHALLENGE_COMPLETE, SoundSource.PLAYERS, 1.0f, 1.0f);
         }
 
-        // HITO 3: Nivel 25 en Melee y Distancia desbloquea Rama Híbrida
+        // HITO HÍBRIDO: Nivel 25 Melee + 25 Distancia
         if (skills.getMeleeLevel() >= 25 && skills.getRangedLevel() >= 25 && !skills.hasHybridRangedMelee()) {
             skills.setHybridRangedMelee(true);
             player.sendSystemMessage(Component.literal(
-                    "§d§l★ ¡RAMA HÍBRIDA DESBLOQUEADA: COMBO DEL CAZADOR! ★\n" +
-                            "§5Dispara una flecha para marcar al enemigo (§dBrillo§5). Si lo rematas cuerpo a cuerpo, provocas una §d¡Detonación de Vacío!§5"
+                    "§d§l★ ¡COMBO HÍBRIDO DEL CAZADOR DESBLOQUEADO! ★\n" +
+                            "§5Flechas marcan al objetivo; remátalo cuerpo a cuerpo para una §dDetonación de Vacío§5."
             ));
             player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
                     SoundEvents.UI_TOAST_CHALLENGE_COMPLETE, SoundSource.PLAYERS, 1.0f, 1.0f);
