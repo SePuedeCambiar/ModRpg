@@ -1,11 +1,10 @@
 package com.example.modrpg;
 
 import com.example.modrpg.networking.ModMessages;
+import com.example.modrpg.skills.data.SkillRegistry;
 import com.mojang.logging.LogUtils;
 import net.minecraftforge.common.MinecraftForge;
-import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.fml.common.Mod;
-import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
 import org.slf4j.Logger;
 
 @Mod(ModRpg.MODID)
@@ -14,9 +13,10 @@ public class ModRpg {
     public static final Logger LOGGER = LogUtils.getLogger();
 
     public ModRpg() {
-        IEventBus modEventBus = FMLJavaModLoadingContext.get().getModEventBus();
+        // 1. Inicializamos todas las habilidades del registro
+        SkillRegistry.init();
 
-        // ⚔️ Registramos el canal de red cliente <-> servidor
+        // 2. Registramos el canal de red
         ModMessages.register();
 
         MinecraftForge.EVENT_BUS.register(this);

@@ -3,79 +3,61 @@ package com.example.modrpg.networking;
 import com.example.modrpg.client.ClientPacketHandler;
 import com.example.modrpg.skills.PlayerSkills;
 import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.fml.DistExecutor;
 import net.minecraftforge.network.NetworkEvent;
 
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
 import java.util.function.Supplier;
 
 public class PacketSyncSkillsToClient {
-    public final int meleeLevel;
-    public final int rangedLevel;
-    public final int mobilityLevel;
-    public final int meleeKills;
-    public final int rangedKills;
-    public final boolean hasDoubleAttack;
-    public final boolean hasSpinAttack;
-    public final boolean hasCapstoneMelee;
-    public final boolean hasTailwind;
-    public final boolean hasHypersonicArrow;
-    public final boolean hasHybridRangedMelee;
+
+    public final Map<ResourceLocation, Integer> branchLevels;
+    public final Set<ResourceLocation> unlockedNodes;
+    public final Map<ResourceLocation, Integer> practiceCounters;
+    public final Map<ResourceLocation, Integer> cooldowns;
+    public final boolean ultimateCharged;
 
     public PacketSyncSkillsToClient(PlayerSkills skills) {
-        this.meleeLevel = skills.getMeleeLevel();
-        this.rangedLevel = skills.getRangedLevel();
-        this.mobilityLevel = skills.getMobilityLevel();
-        this.meleeKills = skills.getMeleeKills();
-        this.rangedKills = skills.getRangedKills();
-        this.hasDoubleAttack = skills.hasDoubleAttack();
-        this.hasSpinAttack = skills.hasSpinAttack();
-        this.hasCapstoneMelee = skills.hasCapstoneMelee();
-        this.hasTailwind = skills.hasTailwind();
-        this.hasHypersonicArrow = skills.hasHypersonicArrow();
-        this.hasHybridRangedMelee = skills.hasHybridRangedMelee();
+        this.branchLevels = new HashMap<>(skills.getAllBranchLevels());
+        this.unlockedNodes = new HashSet<>(skills.getUnlockedNodes());
+        this.practiceCounters = new HashMap<>(skills.getAllPracticeCounters());
+        this.cooldowns = new HashMap<>(skills.getAllCooldowns());
+        this.ultimateCharged = skills.isUltimateCharged();
     }
 
-    public PacketSyncSkillsToClient(int meleeLevel, int rangedLevel, int mobilityLevel,
-                                    int meleeKills, int rangedKills,
-                                    boolean hasDoubleAttack, boolean hasSpinAttack,
-                                    boolean hasCapstoneMelee, boolean hasTailwind,
-                                    boolean hasHypersonicArrow, boolean hasHybridRangedMelee) {
-        this.meleeLevel = meleeLevel;
-        this.rangedLevel = rangedLevel;
-        this.mobilityLevel = mobilityLevel;
-        this.meleeKills = meleeKills;
-        this.rangedKills = rangedKills;
-        this.hasDoubleAttack = hasDoubleAttack;
-        this.hasSpinAttack = hasSpinAttack;
-        this.hasCapstoneMelee = hasCapstoneMelee;
-        this.hasTailwind = hasTailwind;
-        this.hasHypersonicArrow = hasHypersonicArrow;
-        this.hasHybridRangedMelee = hasHybridRangedMelee;
+    public PacketSyncSkillsToClient(Map<ResourceLocation, Integer> branchLevels,
+                                    Set<ResourceLocation> unlockedNodes,
+                                    Map<ResourceLocation, Integer> practiceCounters,
+                                    Map<ResourceLocation, Integer> cooldowns,
+                                    boolean ultimateCharged) {
+        this.branchLevels = branchLevels;
+        this.unlockedNodes = unlockedNodes;
+        this.practiceCounters = practiceCounters;
+        this.cooldowns = cooldowns;
+        this.ultimateCharged = ultimateCharged;
     }
 
     public static void encode(PacketSyncSkillsToClient msg, FriendlyByteBuf buf) {
-        buf.writeInt(msg.meleeLevel);
-        buf.writeInt(msg.rangedLevel);
-        buf.writeInt(msg.mobilityLevel);
-        buf.writeInt(msg.meleeKills);
-        buf.writeInt(msg.rangedKills);
-        buf.writeBoolean(msg.hasDoubleAttack);
-        buf.writeBoolean(msg.hasSpinAttack);
-        buf.writeBoolean(msg.hasCapstoneMelee);
-        buf.writeBoolean(msg.hasTailwind);
-        buf.writeBoolean(msg.hasHypersonicArrow);
-        buf.writeBoolean(msg.hasHybridRangedMelee);
+        buf.writeMap(msg.branchLevels, FriendlyByteBuf::writeResourceLocation, FriendlyByteBuf::writeVarInt);
+        buf.writeCollection(msg.unlockedNodes, FriendlyByteBuf::writeResourceLocation);
+        buf.writeMap(msg.practiceCounters, FriendlyByteBuf::writeResourceLocation, FriendlyByteBuf::writeVarInt);
+        buf.writeMap(msg.cooldowns, FriendlyByteBuf::writeResourceLocation, FriendlyByteBuf::writeVarInt);
+        buf.writeBoolean(msg.ultimateCharged);
     }
 
     public static PacketSyncSkillsToClient decode(FriendlyByteBuf buf) {
-        return new PacketSyncSkillsToClient(
-                buf.readInt(), buf.readInt(), buf.readInt(),
-                buf.readInt(), buf.readInt(),
-                buf.readBoolean(), buf.readBoolean(),
-                buf.readBoolean(), buf.readBoolean(),
-                buf.readBoolean(), buf.readBoolean()
-        );
+        Map<ResourceLocation, Integer> branchLevels = buf.readMap(FriendlyByteBuf::readResourceLocation, FriendlyByteBuf::readVarInt);
+        Set<ResourceLocation> unlockedNodes = buf.readCollection(HashSet::new, FriendlyByteBuf::readResourceLocation);
+        Map<ResourceLocation, Integer> practiceCounters = buf.readMap(FriendlyByteBuf::readResourceLocation, FriendlyByteBuf::readVarInt);
+        Map<ResourceLocation, Integer> cooldowns = buf.readMap(FriendlyByteBuf::readResourceLocation, FriendlyByteBuf::readVarInt);
+        boolean ultimateCharged = buf.readBoolean();
+
+        return new PacketSyncSkillsToClient(branchLevels, unlockedNodes, practiceCounters, cooldowns, ultimateCharged);
     }
 
     public static void handle(PacketSyncSkillsToClient msg, Supplier<NetworkEvent.Context> ctx) {

@@ -8,9 +8,9 @@ import net.minecraftforge.network.PacketDistributor;
 import net.minecraftforge.network.simple.SimpleChannel;
 
 public class ModMessages {
-    private static SimpleChannel INSTANCE;
 
-    private static final String PROTOCOL_VERSION = "1";
+    private static SimpleChannel INSTANCE;
+    private static final String PROTOCOL_VERSION = "2";
     public static final ResourceLocation NETWORK_ID = new ResourceLocation(ModRpg.MODID, "main");
 
     public static void register() {
@@ -21,16 +21,16 @@ public class ModMessages {
                 PROTOCOL_VERSION::equals
         );
 
-        // ID 0: Golpe Definitivo +500% (Tecla R)
+        // ID 0: Casteo universal de habilidades con tecla (Cliente -> Servidor)
         INSTANCE.registerMessage(
                 0,
-                PacketSkillActivate.class,
-                PacketSkillActivate::encode,
-                PacketSkillActivate::decode,
-                PacketSkillActivate::handle
+                PacketCastSkill.class,
+                PacketCastSkill::encode,
+                PacketCastSkill::decode,
+                PacketCastSkill::handle
         );
 
-        // ID 1: Sincronizar datos al cliente (Servidor -> Cliente)
+        // ID 1: Sincronización completa de datos (Servidor -> Cliente)
         INSTANCE.registerMessage(
                 1,
                 PacketSyncSkillsToClient.class,
@@ -39,22 +39,13 @@ public class ModMessages {
                 PacketSyncSkillsToClient::handle
         );
 
-        // ID 2: Subir de nivel desde la GUI (Cliente -> Servidor)
+        // ID 2: Subir de nivel / desbloquear desde la GUI (Cliente -> Servidor)
         INSTANCE.registerMessage(
                 2,
                 PacketUpgradeSkill.class,
                 PacketUpgradeSkill::encode,
                 PacketUpgradeSkill::decode,
                 PacketUpgradeSkill::handle
-        );
-
-        // ID 3: Ataque Giratorio 360° (Tecla V)
-        INSTANCE.registerMessage(
-                3,
-                PacketSpinAttack.class,
-                PacketSpinAttack::encode,
-                PacketSpinAttack::decode,
-                PacketSpinAttack::handle
         );
     }
 

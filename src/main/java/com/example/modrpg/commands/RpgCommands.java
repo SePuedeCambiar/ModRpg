@@ -1,14 +1,18 @@
 package com.example.modrpg.commands;
 
+import com.example.modrpg.ModRpg;
 import com.example.modrpg.skills.PlayerSkillsProvider;
 import com.example.modrpg.skills.SkillAttributes;
 import com.example.modrpg.skills.SkillEconomy;
+import com.example.modrpg.skills.data.SkillNode;
+import com.example.modrpg.skills.data.SkillRegistry;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 
 public class RpgCommands {
@@ -17,7 +21,7 @@ public class RpgCommands {
         dispatcher.register(Commands.literal("rpg")
 
                 // =========================================================================
-                // 1. COMANDO: /rpg stats (Panel detallado en el chat)
+                // 1. COMANDO: /rpg stats (Muestra todas las ramas y habilidades activas)
                 // =========================================================================
                 .then(Commands.literal("stats")
                         .executes(context -> {
@@ -25,60 +29,29 @@ public class RpgCommands {
                             player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
                                 player.sendSystemMessage(Component.literal("§6================ TUS ESTADÍSTICAS RPG ================"));
 
-                                // --- Rama Melee ---
-                                int nextMeleeLvl = skills.getMeleeLevel() + 1;
-                                int meleeXpCost = SkillEconomy.getXpCost(skills.getMeleeLevel());
-                                int meleeKillsReq = SkillEconomy.getRequiredKills(nextMeleeLvl);
-                                player.sendSystemMessage(Component.literal(
-                                        "§c⚔ Melee: §fNivel " + skills.getMeleeLevel() + "/100 §7| Bajas: §e" + skills.getMeleeKills() +
-                                                (skills.getMeleeLevel() < 100 ? " §7(Sig: §a" + meleeXpCost + " Niveles XP§7, §e" + meleeKillsReq + " Kills§7)" : " §6[MÁXIMO]")
-                                ));
+                                // Ramas activas
+                                player.sendSystemMessage(Component.literal("§e--- NIVELES DE RAMAS ---"));
+                                skills.getAllBranchLevels().forEach((branchId, lvl) -> {
+                                    player.sendSystemMessage(Component.literal("§a• " + branchId.getPath().toUpperCase() + ": §fNivel " + lvl + "/100"));
+                                });
 
-                                // --- Rama Distancia ---
-                                int nextRangedLvl = skills.getRangedLevel() + 1;
-                                int rangedXpCost = SkillEconomy.getXpCost(skills.getRangedLevel());
-                                int rangedKillsReq = SkillEconomy.getRequiredKills(nextRangedLvl);
-                                player.sendSystemMessage(Component.literal(
-                                        "§b🏹 Distancia: §fNivel " + skills.getRangedLevel() + "/100 §7| Bajas: §e" + skills.getRangedKills() +
-                                                (skills.getRangedLevel() < 100 ? " §7(Sig: §a" + rangedXpCost + " Niveles XP§7, §e" + rangedKillsReq + " Kills§7)" : " §6[MÁXIMO]")
-                                ));
+                                // Práctica acumulada
+                                player.sendSystemMessage(Component.literal("§e--- PRÁCTICA Y BAJAS ---"));
+                                skills.getAllPracticeCounters().forEach((counterId, count) -> {
+                                    player.sendSystemMessage(Component.literal("§7• " + counterId.getPath() + ": §e" + count));
+                                });
 
-                                // --- Rama Movilidad ---
-                                int nextMobLvl = skills.getMobilityLevel() + 1;
-                                int mobXpCost = SkillEconomy.getXpCost(skills.getMobilityLevel());
-                                int mobKillsReq = SkillEconomy.getRequiredKills(nextMobLvl);
-                                int totalKills = skills.getMeleeKills() + skills.getRangedKills();
-                                player.sendSystemMessage(Component.literal(
-                                        "§a🏃 Movilidad: §fNivel " + skills.getMobilityLevel() + "/100 §7| Bajas totales: §e" + totalKills +
-                                                (skills.getMobilityLevel() < 100 ? " §7(Sig: §a" + mobXpCost + " Niveles XP§7, §e" + mobKillsReq + " Kills§7)" : " §6[MÁXIMO]")
-                                ));
-
-                                // --- TALENTOS DESBLOQUEADOS ---
-                                player.sendSystemMessage(Component.literal("§e--- ESTADO DE TALENTOS Y HABILIDADES ---"));
-
-                                // Rama 1: CaC
-                                player.sendSystemMessage(Component.literal(
-                                        "§c⚔ Doble Ataque: " + (skills.hasDoubleAttack() ? "§a§lDESBLOQUEADO §7(Pasivo con 100% barra)" : "§c§lBLOQUEADO §7(Req. Nivel 4 Melee)")
-                                ));
-                                player.sendSystemMessage(Component.literal(
-                                        "§b🌀 Torbellino 360°: " + (skills.hasSpinAttack() ? "§a§lDESBLOQUEADO §7[Tecla V]" : "§c§lBLOQUEADO §7(Req. Nivel 20 Melee)")
-                                ));
-                                player.sendSystemMessage(Component.literal(
-                                        "§6⚡ Golpe Definitivo (500%): " + (skills.hasCapstoneMelee() ? "§a§lDESBLOQUEADO §7[Tecla R]" : "§c§lBLOQUEADO §7(Req. Nivel 50 Melee)")
-                                ));
-
-                                // Rama 2: Arquería
-                                player.sendSystemMessage(Component.literal(
-                                        "§b💨 Viento a Favor: " + (skills.hasTailwind() ? "§a§lDESBLOQUEADO §7(Flechas +80% velocidad)" : "§c§lBLOQUEADO §7(Req. Nivel 5 Distancia)")
-                                ));
-                                player.sendSystemMessage(Component.literal(
-                                        "§9⚡ Tiro Hipersónico: " + (skills.hasHypersonicArrow() ? "§a§lDESBLOQUEADO §7(Sneak + Disparo)" : "§c§lBLOQUEADO §7(Req. Nivel 50 Distancia)")
-                                ));
-
-                                // Sinergias
-                                player.sendSystemMessage(Component.literal(
-                                        "§d☯ Cazador Híbrido: " + (skills.hasHybridRangedMelee() ? "§a§lDESBLOQUEADO §7(Combo Flecha + Espada)" : "§c§lBLOQUEADO §7(Req. 25 en ambas)")
-                                ));
+                                // Habilidades desbloqueadas
+                                player.sendSystemMessage(Component.literal("§e--- HABILIDADES DESBLOQUEADAS ---"));
+                                if (skills.getUnlockedNodes().isEmpty()) {
+                                    player.sendSystemMessage(Component.literal("§7(Ninguna habilidad desbloqueada aún)"));
+                                } else {
+                                    for (ResourceLocation nodeId : skills.getUnlockedNodes()) {
+                                        SkillNode node = SkillRegistry.get(nodeId);
+                                        String name = (node != null) ? node.getDisplayName().getString() : nodeId.toString();
+                                        player.sendSystemMessage(Component.literal("§a✔ " + name));
+                                    }
+                                }
 
                                 player.sendSystemMessage(Component.literal("§6======================================================"));
                             });
@@ -87,14 +60,16 @@ public class RpgCommands {
                 )
 
                 // =========================================================================
-                // 2. COMANDO: /rpg upgrade <rama> (Para supervivencia, gasta XP legítima)
+                // 2. COMANDO: /rpg upgrade <rama>
                 // =========================================================================
                 .then(Commands.literal("upgrade")
                         .then(Commands.argument("branch", StringArgumentType.word())
-                                .suggests((context, builder) -> {
+                                .suggests((ctx, builder) -> {
                                     builder.suggest("melee");
                                     builder.suggest("ranged");
                                     builder.suggest("mobility");
+                                    builder.suggest("magic");
+                                    builder.suggest("defense");
                                     return builder.buildFuture();
                                 })
                                 .executes(context -> {
@@ -107,38 +82,32 @@ public class RpgCommands {
                 )
 
                 // =========================================================================
-                // 3. COMANDO: /rpg addlevel <rama> <cantidad> (Modo Admin / Pruebas)
+                // 3. COMANDO ADMIN: /rpg addlevel <rama> <cantidad>
                 // =========================================================================
                 .then(Commands.literal("addlevel")
-                        .then(Commands.argument("skill", StringArgumentType.word())
-                                .suggests((context, builder) -> {
+                        .requires(source -> source.hasPermission(2))
+                        .then(Commands.argument("branch", StringArgumentType.word())
+                                .suggests((ctx, builder) -> {
                                     builder.suggest("melee");
                                     builder.suggest("ranged");
                                     builder.suggest("mobility");
+                                    builder.suggest("magic");
+                                    builder.suggest("defense");
                                     return builder.buildFuture();
                                 })
                                 .then(Commands.argument("amount", IntegerArgumentType.integer(1, 100))
                                         .executes(context -> {
                                             ServerPlayer player = context.getSource().getPlayerOrException();
-                                            String skill = StringArgumentType.getString(context, "skill");
+                                            String branch = StringArgumentType.getString(context, "branch");
                                             int amount = IntegerArgumentType.getInteger(context, "amount");
 
-                                            player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
-                                                if (skill.equalsIgnoreCase("melee")) {
-                                                    skills.addMeleeLevel(amount);
-                                                    player.sendSystemMessage(Component.literal("§a[RPG] Nivel Melee aumentado a: §e" + skills.getMeleeLevel()));
-                                                } else if (skill.equalsIgnoreCase("ranged")) {
-                                                    skills.addRangedLevel(amount);
-                                                    player.sendSystemMessage(Component.literal("§a[RPG] Nivel Ranged aumentado a: §e" + skills.getRangedLevel()));
-                                                } else if (skill.equalsIgnoreCase("mobility")) {
-                                                    skills.setMobilityLevel(skills.getMobilityLevel() + amount);
-                                                    player.sendSystemMessage(Component.literal("§a[RPG] Nivel Movilidad aumentado a: §e" + skills.getMobilityLevel()));
-                                                } else {
-                                                    player.sendSystemMessage(Component.literal("§cRama desconocida. Usa: melee, ranged o mobility"));
-                                                    return;
-                                                }
+                                            ResourceLocation branchId = new ResourceLocation(ModRpg.MODID, branch.toLowerCase());
 
-                                                // Refrescamos atributos y sincronizamos con el cliente inmediatamente
+                                            player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
+                                                skills.addBranchLevel(branchId, amount);
+                                                player.sendSystemMessage(Component.literal(
+                                                        "§a[RPG] Rama §e" + branchId.getPath().toUpperCase() + "§a aumentada a Nivel: §e" + skills.getBranchLevel(branchId)
+                                                ));
                                                 SkillAttributes.applyModifiers(player);
                                                 SkillEconomy.syncSkills(player);
                                             });
@@ -146,6 +115,40 @@ public class RpgCommands {
                                             return 1;
                                         })
                                 )
+                        )
+                )
+
+                // =========================================================================
+                // 4. COMANDO ADMIN: /rpg unlock <skill_id> (Para pruebas instantáneas)
+                // =========================================================================
+                .then(Commands.literal("unlock")
+                        .requires(source -> source.hasPermission(2))
+                        .then(Commands.argument("skill", StringArgumentType.word())
+                                .suggests((ctx, builder) -> {
+                                    for (SkillNode node : SkillRegistry.getAll()) {
+                                        builder.suggest(node.getId().getPath());
+                                    }
+                                    return builder.buildFuture();
+                                })
+                                .executes(context -> {
+                                    ServerPlayer player = context.getSource().getPlayerOrException();
+                                    String skillPath = StringArgumentType.getString(context, "skill");
+                                    ResourceLocation skillId = new ResourceLocation(ModRpg.MODID, skillPath);
+
+                                    SkillNode node = SkillRegistry.get(skillId);
+                                    if (node == null) {
+                                        player.sendSystemMessage(Component.literal("§c[RPG] No existe ninguna habilidad con ID: " + skillId));
+                                        return 0;
+                                    }
+
+                                    player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
+                                        skills.unlockNode(skillId);
+                                        player.sendSystemMessage(Component.literal("§a[RPG] ¡Habilidad desbloqueada con éxito: §e" + node.getDisplayName().getString() + "§a!"));
+                                        SkillEconomy.syncSkills(player);
+                                    });
+
+                                    return 1;
+                                })
                         )
                 )
         );

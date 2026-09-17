@@ -6,21 +6,26 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.world.entity.player.Player;
 
 public class ClientPacketHandler {
+
     public static void handleSync(PacketSyncSkillsToClient msg) {
         Player player = Minecraft.getInstance().player;
         if (player != null) {
             player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
-                skills.setMeleeLevel(msg.meleeLevel);
-                skills.setRangedLevel(msg.rangedLevel);
-                skills.setMobilityLevel(msg.mobilityLevel);
-                skills.setMeleeKills(msg.meleeKills);
-                skills.setRangedKills(msg.rangedKills);
-                skills.setDoubleAttack(msg.hasDoubleAttack);
-                skills.setSpinAttack(msg.hasSpinAttack);
-                skills.setCapstoneMelee(msg.hasCapstoneMelee);
-                skills.setTailwind(msg.hasTailwind);
-                skills.setHypersonicArrow(msg.hasHypersonicArrow);
-                skills.setHybridRangedMelee(msg.hasHybridRangedMelee);
+                // 1. Reemplazar ramas
+                skills.getAllBranchLevels(); // vista
+                msg.branchLevels.forEach(skills::setBranchLevel);
+
+                // 2. Reemplazar nodos desbloqueados
+                skills.getUnlockedNodes().clear();
+                msg.unlockedNodes.forEach(skills::unlockNode);
+
+                // 3. Reemplazar contadores de práctica
+                msg.practiceCounters.forEach(skills::setPractice);
+
+                // 4. Reemplazar cooldowns
+                msg.cooldowns.forEach(skills::setCooldown);
+
+                skills.setUltimateCharged(msg.ultimateCharged);
             });
         }
     }
