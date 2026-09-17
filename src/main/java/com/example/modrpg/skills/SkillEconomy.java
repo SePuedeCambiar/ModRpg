@@ -32,26 +32,31 @@ public class SkillEconomy {
                 return;
             }
 
-            // REQUISITO DIAGRAMA 2: CaC requiere nivel 10 de XP
-            if (branchId.equals(SkillRegistry.BRANCH_MELEE) && currentLevel == 0) {
-                if (player.experienceLevel < 10) {
-                    player.sendSystemMessage(Component.literal(
-                            "§c🔒 [RPG] Para desbloquear Cuerpo a Cuerpo (CaC) necesitas §eNivel 10 de XP§c. (Tienes: " + player.experienceLevel + ")"
-                    ));
+            // REGLAS DE ENTRADA DEL DIAGRAMA 1
+            if (currentLevel == 0) {
+                if (branchId.equals(SkillRegistry.BRANCH_MELEE) && player.experienceLevel < 10) {
+                    player.sendSystemMessage(Component.literal("§c🔒 [RPG] Cuerpo a Cuerpo requiere §eNivel 10 de XP§c. (Tienes: " + player.experienceLevel + ")"));
+                    return;
+                }
+                if (branchId.equals(SkillRegistry.BRANCH_RANGED) && player.experienceLevel < 5) {
+                    player.sendSystemMessage(Component.literal("§c🔒 [RPG] Arquería requiere §bNivel 5 de XP§c. (Tienes: " + player.experienceLevel + ")"));
+                    return;
+                }
+                if (branchId.equals(SkillRegistry.BRANCH_MAGIC) && player.experienceLevel < 5) {
+                    player.sendSystemMessage(Component.literal("§c🔒 [RPG] Magia requiere §dNivel 5 de XP§c. (Tienes: " + player.experienceLevel + ")"));
+                    return;
+                }
+                if (branchId.equals(SkillRegistry.BRANCH_DEFENSE) && player.experienceLevel < 8) {
+                    player.sendSystemMessage(Component.literal("§c🔒 [RPG] Defensa requiere §6Nivel 8 de XP§c. (Tienes: " + player.experienceLevel + ")"));
+                    return;
+                }
+                if (branchId.equals(SkillRegistry.BRANCH_MOBILITY) && player.experienceLevel < 10) {
+                    player.sendSystemMessage(Component.literal("§c🔒 [RPG] Movilidad requiere §aNivel 10 de XP§c. (Tienes: " + player.experienceLevel + ")"));
                     return;
                 }
             }
 
-            // REQUISITO DIAGRAMA 1: Arquería requiere nivel 5 de XP
-            if (branchId.equals(SkillRegistry.BRANCH_RANGED) && currentLevel == 0) {
-                if (player.experienceLevel < 5) {
-                    player.sendSystemMessage(Component.literal(
-                            "§c🔒 [RPG] Para desbloquear Arquería necesitas §bNivel 5 de XP§c. (Tienes: " + player.experienceLevel + ")"
-                    ));
-                    return;
-                }
-            }
-
+            // Requisito de práctica
             ResourceLocation counter = branchName.equalsIgnoreCase("ranged") ? SkillRegistry.COUNTER_RANGED_KILLS : SkillRegistry.COUNTER_MELEE_KILLS;
             int playerKills = skills.getPractice(counter);
 

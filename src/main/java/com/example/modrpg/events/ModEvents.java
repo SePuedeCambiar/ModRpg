@@ -8,17 +8,12 @@ import com.example.modrpg.skills.SkillAttributes;
 import com.example.modrpg.skills.SkillEconomy;
 import com.example.modrpg.skills.data.SkillNode;
 import com.example.modrpg.skills.data.SkillRegistry;
-import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.sounds.SoundEvents;
-import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.AbstractArrow;
-import net.minecraft.world.entity.projectile.FireworkRocketEntity;
 import net.minecraftforge.event.AttachCapabilitiesEvent;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.TickEvent;
@@ -76,28 +71,28 @@ public class ModEvents {
 
     @SubscribeEvent
     public static void onPlayerTick(TickEvent.PlayerTickEvent event) {
-        if (event.phase == TickEvent.Phase.END && !event.player.level().isClientSide()) {
-            event.player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(PlayerSkills::tickCooldowns);
+        if (event.phase == TickEvent.Phase.END && !event.player.level().isClientSide() && event.player instanceof ServerPlayer serverPlayer) {
+            serverPlayer.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
+                skills.tickCooldowns();
+
+                // Altura de paso para subir bloques de 1 de alto sin saltar
+                if (skills.isNodeUnlocked(SkillRegistry.NODE_LIGHT_STEP)) {
+                    serverPlayer.setMaxUpStep(1.25f);
+                } else {
+                    serverPlayer.setMaxUpStep(0.6f);
+                }
+            });
         }
     }
 
-    // =========================================================================
-    // REGISTRO DE BAJAS / PRÁCTICA DINÁMICA
-    // =========================================================================
     @SubscribeEvent
     public static void onLivingDeath(LivingDeathEvent event) {
         if (event.getSource().getEntity() instanceof ServerPlayer player) {
             player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
                 if (event.getSource().getDirectEntity() == player) {
                     skills.addPractice(SkillRegistry.COUNTER_MELEE_KILLS, 1);
-                    player.displayClientMessage(
-                            Component.literal("§c⚔ Bajas CaC: §e" + skills.getPractice(SkillRegistry.COUNTER_MELEE_KILLS)), true
-                    );
                 } else {
                     skills.addPractice(SkillRegistry.COUNTER_RANGED_KILLS, 1);
-                    player.displayClientMessage(
-                            Component.literal("§b🏹 Bajas Distancia: §e" + skills.getPractice(SkillRegistry.COUNTER_RANGED_KILLS)), true
-                    );
                 }
                 SkillEconomy.checkMilestones(player, skills);
                 SkillEconomy.syncSkills(player);
@@ -105,9 +100,6 @@ public class ModEvents {
         }
     }
 
-    // =========================================================================
-    // ENRUTADOR DE DISPAROS DE PROYECTIL
-    // =========================================================================
     @SubscribeEvent
     public static void onArrowSpawn(EntityJoinLevelEvent event) {
         if (!event.getLevel().isClientSide() && event.getEntity() instanceof AbstractArrow arrow) {
@@ -124,44 +116,41 @@ public class ModEvents {
         }
     }
 
-    // =========================================================================
-    // ENRUTADOR DE DAÑO Y COMBATE
-    // =========================================================================
     @SubscribeEvent
     public static void onLivingHurt(LivingHurtEvent event) {
         Entity attacker = event.getSource().getEntity();
-        Entity directEntity = event.getSource().getDirectEntity();
+        Entity target = event.getEntity();
 
-        if (!(attacker instanceof ServerPlayer player)) return;
-
-        player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
-            // 1. Escalado base de daño con arcos
-            if (directEntity instanceof AbstractArrow) {
-                int rangedLvl = skills.getBranchLevel(SkillRegistry.BRANCH_RANGED);
-                if (rangedLvl > 0) {
-                    float bonusMultiplier = 1.0f + (float) Math.pow(rangedLvl / 100.0, 1.5) * 2.5f;
-                    event.setAmount(event.getAmount() * bonusMultiplier);
+        // 1. Si el atacante es el jugador (daño saliente)
+        if (attacker instanceof ServerPlayer player) {
+            player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
+                if (event.getSource().getDirectEntity() instanceof AbstractArrow) {
+                    int rangedLvl = skills.getBranchLevel(SkillRegistry.BRANCH_RANGED);
+                    if (rangedLvl > 0) {
+                        float bonus = 1.0f + (float) Math.pow(rangedLvl / 100.0, 1.5) * 2.5f;
+                        event.setAmount(event.getAmount() * bonus);
+                    }
                 }
-            }
 
-            // 2. Cohetes con ballesta
-            else if (directEntity instanceof FireworkRocketEntity) {
-                int rangedLvl = skills.getBranchLevel(SkillRegistry.BRANCH_RANGED);
-                float bonusExplosion = 10.0f + (rangedLvl * 0.4f);
-                event.setAmount(event.getAmount() + bonusExplosion);
-
-                ServerLevel level = (ServerLevel) player.level();
-                level.sendParticles(ParticleTypes.DRAGON_BREATH, event.getEntity().getX(), event.getEntity().getY() + 0.8, event.getEntity().getZ(), 45, 0.6, 0.6, 0.6, 0.1);
-                level.playSound(null, event.getEntity().getX(), event.getEntity().getY(), event.getEntity().getZ(), SoundEvents.LIGHTNING_BOLT_IMPACT, SoundSource.PLAYERS, 1.0f, 1.2f);
-            }
-
-            // 3. Ejecución de habilidades modulares registradas
-            for (ResourceLocation nodeId : skills.getUnlockedNodes()) {
-                SkillNode node = SkillRegistry.get(nodeId);
-                if (node != null) {
-                    node.onLivingHurt(player, event, skills);
+                for (ResourceLocation nodeId : skills.getUnlockedNodes()) {
+                    SkillNode node = SkillRegistry.get(nodeId);
+                    if (node != null) {
+                        node.onLivingHurt(player, event, skills);
+                    }
                 }
-            }
-        });
+            });
+        }
+
+        // 2. Si la víctima atacada es el jugador (mitigación defensiva)
+        if (target instanceof ServerPlayer victim) {
+            victim.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
+                for (ResourceLocation nodeId : skills.getUnlockedNodes()) {
+                    SkillNode node = SkillRegistry.get(nodeId);
+                    if (node != null) {
+                        node.onLivingHurt(victim, event, skills);
+                    }
+                }
+            });
+        }
     }
 }
