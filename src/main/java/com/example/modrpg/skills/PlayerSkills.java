@@ -11,19 +11,21 @@ import java.util.*;
 
 public class PlayerSkills {
 
-    // === ESTRUCTURAS DINÁMICAS ===
+    // =========================================================================
+    // ESTRUCTURAS DINÁMICAS (Mapas y Conjuntos)
+    // =========================================================================
     private final Map<ResourceLocation, Integer> branchLevels = new HashMap<>();
     private final Set<ResourceLocation> unlockedNodes = new HashSet<>();
     private final Map<ResourceLocation, Integer> practiceCounters = new HashMap<>();
     private final Map<ResourceLocation, Integer> cooldowns = new HashMap<>();
 
-    // Estado temporal para el golpe definitivo cargado
+    // Estado para el golpe cargado
     private boolean ultimateCharged = false;
 
     public PlayerSkills() {}
 
     // =========================================================================
-    // GESTIÓN DE RAMAS Y NIVELES
+    // GESTIÓN DE RAMAS Y NIVELES (Genérico)
     // =========================================================================
 
     public int getBranchLevel(ResourceLocation branchId) {
@@ -43,7 +45,7 @@ public class PlayerSkills {
     }
 
     // =========================================================================
-    // GESTIÓN DE NODOS Y HABILIDADES
+    // GESTIÓN DE NODOS Y HABILIDADES (Genérico)
     // =========================================================================
 
     public boolean isNodeUnlocked(ResourceLocation nodeId) {
@@ -63,7 +65,7 @@ public class PlayerSkills {
     }
 
     // =========================================================================
-    // CONTADORES DE PRÁCTICA
+    // CONTADORES DE PRÁCTICA Y BAJAS (Genérico)
     // =========================================================================
 
     public int getPractice(ResourceLocation counterId) {
@@ -83,7 +85,7 @@ public class PlayerSkills {
     }
 
     // =========================================================================
-    // GESTIÓN DE COOLDOWNS
+    // GESTIÓN DE COOLDOWNS / ENFRIAMIENTOS (Genérico)
     // =========================================================================
 
     public int getCooldown(ResourceLocation skillId) {
@@ -107,7 +109,7 @@ public class PlayerSkills {
     }
 
     /**
-     * Decrementa todos los enfriamientos en 1 tick (se ejecuta en PlayerTickEvent).
+     * Decrementa los enfriamientos activos cada tick del juego.
      */
     public void tickCooldowns() {
         if (cooldowns.isEmpty()) return;
@@ -123,7 +125,7 @@ public class PlayerSkills {
     public void setUltimateCharged(boolean charged) { this.ultimateCharged = charged; }
 
     // =========================================================================
-    // COPIAR DATOS (TRAS MORIR O CAMBIAR DE DIMENSIÓN)
+    // CLONACIÓN TRAS MORIR O CAMBIAR DE DIMENSIÓN
     // =========================================================================
 
     public void copyFrom(PlayerSkills source) {
@@ -143,26 +145,26 @@ public class PlayerSkills {
     }
 
     // =========================================================================
-    // SERIALIZACIÓN NBT (GENÉRICA, NUNCA MÁS SE TOCA)
+    // SERIALIZACIÓN NBT (Guardado en el mundo)
     // =========================================================================
 
     public void saveNBTData(CompoundTag nbt) {
-        // 1. Niveles de ramas
+        // 1. Guardar ramas
         CompoundTag branchesTag = new CompoundTag();
         branchLevels.forEach((id, lvl) -> branchesTag.putInt(id.toString(), lvl));
         nbt.put("BranchLevels", branchesTag);
 
-        // 2. Nodos desbloqueados
+        // 2. Guardar habilidades desbloqueadas
         ListTag nodesTag = new ListTag();
         unlockedNodes.forEach(id -> nodesTag.add(StringTag.valueOf(id.toString())));
         nbt.put("UnlockedNodes", nodesTag);
 
-        // 3. Contadores de práctica
+        // 3. Guardar práctica
         CompoundTag practiceTag = new CompoundTag();
         practiceCounters.forEach((id, count) -> practiceTag.putInt(id.toString(), count));
         nbt.put("PracticeCounters", practiceTag);
 
-        // 4. Cooldowns
+        // 4. Guardar cooldowns
         CompoundTag cdTag = new CompoundTag();
         cooldowns.forEach((id, cd) -> cdTag.putInt(id.toString(), cd));
         nbt.put("Cooldowns", cdTag);
@@ -175,7 +177,8 @@ public class PlayerSkills {
         if (nbt.contains("BranchLevels", Tag.TAG_COMPOUND)) {
             CompoundTag branchesTag = nbt.getCompound("BranchLevels");
             for (String key : branchesTag.getAllKeys()) {
-                branchLevels.put(new ResourceLocation(key), branchesTag.getInt(key));
+                ResourceLocation rl = ResourceLocation.tryParse(key);
+                if (rl != null) branchLevels.put(rl, branchesTag.getInt(key));
             }
         }
 
@@ -183,7 +186,8 @@ public class PlayerSkills {
         if (nbt.contains("UnlockedNodes", Tag.TAG_LIST)) {
             ListTag nodesTag = nbt.getList("UnlockedNodes", Tag.TAG_STRING);
             for (int i = 0; i < nodesTag.size(); i++) {
-                unlockedNodes.add(new ResourceLocation(nodesTag.getString(i)));
+                ResourceLocation rl = ResourceLocation.tryParse(nodesTag.getString(i));
+                if (rl != null) unlockedNodes.add(rl);
             }
         }
 
@@ -191,7 +195,8 @@ public class PlayerSkills {
         if (nbt.contains("PracticeCounters", Tag.TAG_COMPOUND)) {
             CompoundTag practiceTag = nbt.getCompound("PracticeCounters");
             for (String key : practiceTag.getAllKeys()) {
-                practiceCounters.put(new ResourceLocation(key), practiceTag.getInt(key));
+                ResourceLocation rl = ResourceLocation.tryParse(key);
+                if (rl != null) practiceCounters.put(rl, practiceTag.getInt(key));
             }
         }
 
@@ -199,7 +204,8 @@ public class PlayerSkills {
         if (nbt.contains("Cooldowns", Tag.TAG_COMPOUND)) {
             CompoundTag cdTag = nbt.getCompound("Cooldowns");
             for (String key : cdTag.getAllKeys()) {
-                cooldowns.put(new ResourceLocation(key), cdTag.getInt(key));
+                ResourceLocation rl = ResourceLocation.tryParse(key);
+                if (rl != null) cooldowns.put(rl, cdTag.getInt(key));
             }
         }
 
@@ -207,8 +213,9 @@ public class PlayerSkills {
     }
 
     // =========================================================================
-    // MÉTODOS PUENTE TEMPORALES (Evitan romper el código en los pasos 2 y 3)
+    // MÉTODOS PUENTE TEMPORALES (Compatibilidad con GUI actual y Eventos)
     // =========================================================================
+
     public int getMeleeLevel() { return getBranchLevel(SkillRegistry.BRANCH_MELEE); }
     public void setMeleeLevel(int lvl) { setBranchLevel(SkillRegistry.BRANCH_MELEE, lvl); }
     public void addMeleeLevel(int amt) { addBranchLevel(SkillRegistry.BRANCH_MELEE, amt); }
@@ -231,11 +238,13 @@ public class PlayerSkills {
     public boolean hasDoubleAttack() { return isNodeUnlocked(SkillRegistry.NODE_DOUBLE_ATTACK) || getMeleeLevel() >= 4; }
     public void setDoubleAttack(boolean u) { if (u) unlockNode(SkillRegistry.NODE_DOUBLE_ATTACK); else lockNode(SkillRegistry.NODE_DOUBLE_ATTACK); }
 
-    public boolean hasSpinAttack() { return isNodeUnlocked(SkillRegistry.NODE_SPIN_ATTACK) || getMeleeLevel() >= 20; }
-    public void setSpinAttack(boolean u) { if (u) unlockNode(SkillRegistry.NODE_SPIN_ATTACK); else lockNode(SkillRegistry.NODE_SPIN_ATTACK); }
+    // Apuntan al Torbellino Ultrapesado (Diagrama 2)
+    public boolean hasSpinAttack() { return isNodeUnlocked(SkillRegistry.NODE_HEAVY_TORNADO) || getMeleeLevel() >= 10; }
+    public void setSpinAttack(boolean u) { if (u) unlockNode(SkillRegistry.NODE_HEAVY_TORNADO); else lockNode(SkillRegistry.NODE_HEAVY_TORNADO); }
 
-    public boolean hasCapstoneMelee() { return isNodeUnlocked(SkillRegistry.NODE_CAPSTONE_MELEE) || getMeleeLevel() >= 50; }
-    public void setCapstoneMelee(boolean u) { if (u) unlockNode(SkillRegistry.NODE_CAPSTONE_MELEE); else lockNode(SkillRegistry.NODE_CAPSTONE_MELEE); }
+    // Apuntan al Ultracorte Final de 10 min (Diagrama 2)
+    public boolean hasCapstoneMelee() { return isNodeUnlocked(SkillRegistry.NODE_ULTRACUT) || getMeleeLevel() >= 100; }
+    public void setCapstoneMelee(boolean u) { if (u) unlockNode(SkillRegistry.NODE_ULTRACUT); else lockNode(SkillRegistry.NODE_ULTRACUT); }
 
     public boolean hasTailwind() { return isNodeUnlocked(SkillRegistry.NODE_TAILWIND) || getRangedLevel() >= 5; }
     public void setTailwind(boolean u) { if (u) unlockNode(SkillRegistry.NODE_TAILWIND); else lockNode(SkillRegistry.NODE_TAILWIND); }
@@ -246,11 +255,11 @@ public class PlayerSkills {
     public boolean hasHybridRangedMelee() { return isNodeUnlocked(SkillRegistry.NODE_HYBRID_HUNTER) || (getMeleeLevel() >= 25 && getRangedLevel() >= 25); }
     public void setHybridRangedMelee(boolean u) { if (u) unlockNode(SkillRegistry.NODE_HYBRID_HUNTER); else lockNode(SkillRegistry.NODE_HYBRID_HUNTER); }
 
-    public int getSpinCooldown() { return getCooldown(SkillRegistry.NODE_SPIN_ATTACK); }
-    public void setSpinCooldown(int cd) { setCooldown(SkillRegistry.NODE_SPIN_ATTACK, cd); }
+    public int getSpinCooldown() { return getCooldown(SkillRegistry.NODE_HEAVY_TORNADO); }
+    public void setSpinCooldown(int cd) { setCooldown(SkillRegistry.NODE_HEAVY_TORNADO, cd); }
 
-    public int getUltimateCooldown() { return getCooldown(SkillRegistry.NODE_CAPSTONE_MELEE); }
-    public void setUltimateCooldown(int cd) { setCooldown(SkillRegistry.NODE_CAPSTONE_MELEE, cd); }
+    public int getUltimateCooldown() { return getCooldown(SkillRegistry.NODE_ULTRACUT); }
+    public void setUltimateCooldown(int cd) { setCooldown(SkillRegistry.NODE_ULTRACUT, cd); }
 
     public void tickCooldown() { tickCooldowns(); }
 }

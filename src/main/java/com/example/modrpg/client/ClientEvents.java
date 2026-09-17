@@ -20,6 +20,7 @@ public class ClientEvents {
             event.register(KeyBinding.SKILL_ACTIVATE_KEY);
             event.register(KeyBinding.OPEN_SKILLS_KEY);
             event.register(KeyBinding.SPIN_ATTACK_KEY);
+            event.register(KeyBinding.MEGACUT_KEY);
         }
     }
 
@@ -27,19 +28,24 @@ public class ClientEvents {
     public static class ClientForgeEvents {
         @SubscribeEvent
         public static void onKeyInput(InputEvent.Key event) {
-            // Tecla [R]: Golpe Definitivo CaC
+            // Tecla [R]: Definitiva CaC Ultracorte Final
             if (KeyBinding.SKILL_ACTIVATE_KEY.consumeClick()) {
-                ModMessages.sendToServer(new PacketCastSkill(SkillRegistry.NODE_CAPSTONE_MELEE));
+                ModMessages.sendToServer(new PacketCastSkill(SkillRegistry.NODE_ULTRACUT));
             }
 
-            // Tecla [K]: Abrir Menú del Árbol de Habilidades
+            // Tecla [B]: Semidefinitiva Megacorte Frontal
+            if (KeyBinding.MEGACUT_KEY.consumeClick()) {
+                ModMessages.sendToServer(new PacketCastSkill(SkillRegistry.NODE_MEGACUT));
+            }
+
+            // Tecla [V]: Torbellino Ultrapesado
+            if (KeyBinding.SPIN_ATTACK_KEY.consumeClick()) {
+                ModMessages.sendToServer(new PacketCastSkill(SkillRegistry.NODE_HEAVY_TORNADO));
+            }
+
+            // Tecla [K]: Abrir Menú
             if (KeyBinding.OPEN_SKILLS_KEY.consumeClick()) {
                 Minecraft.getInstance().setScreen(new SkillTreeScreen());
-            }
-
-            // Tecla [V]: Ataque Giratorio 360° (Torbellino)
-            if (KeyBinding.SPIN_ATTACK_KEY.consumeClick()) {
-                ModMessages.sendToServer(new PacketCastSkill(SkillRegistry.NODE_SPIN_ATTACK));
             }
         }
     }

@@ -15,8 +15,8 @@ public class SkillEconomy {
 
     public static int getXpCost(int currentLevel) {
         if (currentLevel >= MAX_LEVEL) return 100;
-        double progress = (double) currentLevel / 99.0;
-        return Math.max(1, (int) Math.round(1.0 + Math.pow(progress, 1.6) * 99.0));
+        // Costo base creciente según el nivel
+        return Math.max(1, (int) Math.round(1.0 + Math.pow((double) currentLevel / 99.0, 1.6) * 99.0));
     }
 
     public static int getRequiredKills(int nextLevel) {
@@ -33,7 +33,17 @@ public class SkillEconomy {
                 return;
             }
 
-            // Contador de práctica asociado
+            // REQUISITO DIAGRAMA 2: Desbloquear CaC requiere nivel 10 de XP general
+            if (branchId.equals(SkillRegistry.BRANCH_MELEE) && currentLevel == 0) {
+                if (player.experienceLevel < 10) {
+                    player.sendSystemMessage(Component.literal(
+                            "§c🔒 [RPG] Para desbloquear el camino Cuerpo a Cuerpo (CaC) necesitas al menos §eNivel 10 de XP§c.\n§7(Tu nivel actual: §f" + player.experienceLevel + "§7)"
+                    ));
+                    return;
+                }
+            }
+
+            // Práctica de bajas
             ResourceLocation counter = branchName.equalsIgnoreCase("ranged") ? SkillRegistry.COUNTER_RANGED_KILLS : SkillRegistry.COUNTER_MELEE_KILLS;
             int playerKills = skills.getPractice(counter);
 
@@ -62,7 +72,6 @@ public class SkillEconomy {
             player.level().playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.PLAYER_LEVELUP, SoundSource.PLAYERS, 0.8f, 1.2f);
             player.sendSystemMessage(Component.literal("§a§l✔ [RPG] ¡Rama " + branchName.toUpperCase() + " mejorada a Nivel " + nextLevel + "! §7(-" + xpCost + " Niveles XP)"));
 
-            // Desbloqueo automático de talentos cuyos requisitos ya se cumplan
             checkMilestones(player, skills);
             syncSkills(player);
         });

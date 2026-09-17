@@ -27,8 +27,11 @@ public class SkillAttributes {
         attribute.removeModifier(MELEE_DAMAGE_UUID);
         if (level <= 0) return;
 
-        // A nivel 100 da +35.0 de daño adicional
-        double bonusDamage = Math.pow((double) level / 100.0, 1.8) * 35.0;
+        // FÓRMULA DIAGRAMA 2: +2% de daño por cada nivel de CaC (a nivel 100 = +200% de daño base)
+        double baseMultiplier = (double) level * 0.02; // 0.02 por nivel
+        double baseAttack = attribute.getBaseValue();
+        double bonusDamage = baseAttack * baseMultiplier;
+
         attribute.addTransientModifier(new AttributeModifier(
                 MELEE_DAMAGE_UUID,
                 "modrpg_melee_damage",
@@ -44,7 +47,6 @@ public class SkillAttributes {
         attribute.removeModifier(MOBILITY_SPEED_UUID);
         if (level <= 0) return;
 
-        // A nivel 100 da +80% de velocidad
         double bonusSpeed = Math.pow((double) level / 100.0, 1.5) * 0.08;
         attribute.addTransientModifier(new AttributeModifier(
                 MOBILITY_SPEED_UUID,

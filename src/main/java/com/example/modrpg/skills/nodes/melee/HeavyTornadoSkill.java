@@ -16,27 +16,27 @@ import net.minecraft.world.phys.AABB;
 
 import java.util.List;
 
-public class SpinAttackSkill extends SkillNode {
+public class HeavyTornadoSkill extends SkillNode {
 
-    public SpinAttackSkill() {
+    public HeavyTornadoSkill() {
         super(
-                SkillRegistry.NODE_SPIN_ATTACK,
+                SkillRegistry.NODE_HEAVY_TORNADO,
                 SkillRegistry.BRANCH_MELEE,
-                Component.literal("Torbellino 360°"),
-                Component.literal("Ejecuta un giro con tu espada golpeando y empujando a todos los enemigos a tu alrededor."),
+                Component.literal("Torbellino Ultrapesado"),
+                Component.literal("Un ataque giratorio gigantesco (+50% de daño y radio ampliado) que levanta a los enemigos en el aire."),
                 NodeType.ACTIVE_ABILITY,
-                120 // 6 segundos de cooldown (120 ticks)
+                160 // 8 segundos de recarga
         );
     }
 
     @Override
     public void onExecuteActive(ServerPlayer player, PlayerSkills skills) {
         ServerLevel level = (ServerLevel) player.level();
-        double radius = 4.0;
+        double radius = 5.5; // Radio ampliado
 
         player.swing(InteractionHand.MAIN_HAND, true);
 
-        AABB box = player.getBoundingBox().inflate(radius, 1.5, radius);
+        AABB box = player.getBoundingBox().inflate(radius, 2.0, radius);
         List<LivingEntity> targets = level.getEntitiesOfClass(
                 LivingEntity.class,
                 box,
@@ -44,29 +44,31 @@ public class SpinAttackSkill extends SkillNode {
         );
 
         float baseDamage = (float) player.getAttributeValue(Attributes.ATTACK_DAMAGE);
-        float bonus = 1.0f + (skills.getBranchLevel(SkillRegistry.BRANCH_MELEE) * 0.015f);
-        float totalDamage = baseDamage * bonus;
+        // +50% de daño garantizado por la mejora de la habilidad
+        float totalDamage = (baseDamage * 1.50f) * (1.0f + (skills.getBranchLevel(SkillRegistry.BRANCH_MELEE) * 0.02f));
 
         for (LivingEntity target : targets) {
             target.hurt(player.damageSources().playerAttack(player), totalDamage);
             double dx = target.getX() - player.getX();
             double dz = target.getZ() - player.getZ();
-            target.knockback(0.7, -dx, -dz);
+            // Empuje radial + elevación vertical ("ataque ultrapesado")
+            target.knockback(1.0, -dx, -dz);
+            target.setDeltaMovement(target.getDeltaMovement().add(0, 0.45, 0));
         }
 
-        // Partículas en círculo 360°
-        int points = 16;
+        // Anillo de partículas masivo
+        int points = 24;
         for (int i = 0; i < points; i++) {
             double angle = i * (2 * Math.PI / points);
-            double px = player.getX() + (Math.cos(angle) * 2.2);
-            double pz = player.getZ() + (Math.sin(angle) * 2.2);
+            double px = player.getX() + (Math.cos(angle) * 3.2);
+            double pz = player.getZ() + (Math.sin(angle) * 3.2);
             level.sendParticles(ParticleTypes.SWEEP_ATTACK, px, player.getY() + 0.8, pz, 1, 0, 0, 0, 0);
-            level.sendParticles(ParticleTypes.CRIT, px, player.getY() + 0.8, pz, 2, 0.1, 0.1, 0.1, 0.05);
+            level.sendParticles(ParticleTypes.CAMPFIRE_COSY_SMOKE, px, player.getY() + 0.2, pz, 1, 0, 0.05, 0, 0.02);
         }
 
-        level.playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.PLAYER_ATTACK_SWEEP, SoundSource.PLAYERS, 1.6f, 0.8f);
-        level.playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.TRIDENT_RIPTIDE_1, SoundSource.PLAYERS, 0.8f, 1.4f);
+        level.playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.PLAYER_ATTACK_CRIT, SoundSource.PLAYERS, 1.5f, 0.7f);
+        level.playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.GENERIC_EXPLODE, SoundSource.PLAYERS, 0.6f, 1.8f);
 
-        player.displayClientMessage(Component.literal("§b§l🌀 ¡ATAQUE GIRATORIO! §fImpactados: §e" + targets.size()), true);
+        player.displayClientMessage(Component.literal("§6§l🌪 ¡TORBELLINO ULTRAPESADO! §fEnemigos barridos: §e" + targets.size()), true);
     }
 }

@@ -24,7 +24,7 @@ public class DoubleAttackSkill extends SkillNode {
                 Component.literal("Doble Ataque"),
                 Component.literal("Al atacar con la barra de carga al 100%, asesta un segundo golpe consecutivo al 80% de daño."),
                 NodeType.ACTIVE_ABILITY,
-                0 // Pasiva automática en ataque cargado
+                0
         );
     }
 
@@ -33,7 +33,6 @@ public class DoubleAttackSkill extends SkillNode {
         LivingEntity target = event.getEntity();
         if (target == null || target.getTags().contains(RECURSION_TAG)) return;
 
-        // Solo se activa cuerpo a cuerpo directo y con carga de arma completa
         if (event.getSource().getDirectEntity() == player && player.getAttackStrengthScale(0.5f) >= 0.92f) {
             float singleHitDamage = event.getAmount() * 0.80f;
             event.setAmount(singleHitDamage);
