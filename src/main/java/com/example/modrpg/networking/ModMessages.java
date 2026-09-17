@@ -10,7 +10,7 @@ import net.minecraftforge.network.simple.SimpleChannel;
 public class ModMessages {
 
     private static SimpleChannel INSTANCE;
-    private static final String PROTOCOL_VERSION = "2";
+    private static final String PROTOCOL_VERSION = "3";
     public static final ResourceLocation NETWORK_ID = new ResourceLocation(ModRpg.MODID, "main");
 
     public static void register() {
@@ -21,7 +21,7 @@ public class ModMessages {
                 PROTOCOL_VERSION::equals
         );
 
-        // ID 0: Casteo universal de habilidades con tecla (Cliente -> Servidor)
+        // ID 0: Casteo de habilidad activa con tecla
         INSTANCE.registerMessage(
                 0,
                 PacketCastSkill.class,
@@ -30,7 +30,7 @@ public class ModMessages {
                 PacketCastSkill::handle
         );
 
-        // ID 1: Sincronización completa de datos (Servidor -> Cliente)
+        // ID 1: Sincronización completa de datos
         INSTANCE.registerMessage(
                 1,
                 PacketSyncSkillsToClient.class,
@@ -39,13 +39,22 @@ public class ModMessages {
                 PacketSyncSkillsToClient::handle
         );
 
-        // ID 2: Subir de nivel / desbloquear desde la GUI (Cliente -> Servidor)
+        // ID 2: Subir nivel de rama con botón
         INSTANCE.registerMessage(
                 2,
                 PacketUpgradeSkill.class,
                 PacketUpgradeSkill::encode,
                 PacketUpgradeSkill::decode,
                 PacketUpgradeSkill::handle
+        );
+
+        // ID 3: Comprar / Desbloquear nodo desde el árbol
+        INSTANCE.registerMessage(
+                3,
+                PacketUnlockNode.class,
+                PacketUnlockNode::encode,
+                PacketUnlockNode::decode,
+                PacketUnlockNode::handle
         );
     }
 

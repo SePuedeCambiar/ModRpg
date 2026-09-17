@@ -15,7 +15,6 @@ public class SkillEconomy {
 
     public static int getXpCost(int currentLevel) {
         if (currentLevel >= MAX_LEVEL) return 100;
-        // Costo base creciente según el nivel
         return Math.max(1, (int) Math.round(1.0 + Math.pow((double) currentLevel / 99.0, 1.6) * 99.0));
     }
 
@@ -33,17 +32,26 @@ public class SkillEconomy {
                 return;
             }
 
-            // REQUISITO DIAGRAMA 2: Desbloquear CaC requiere nivel 10 de XP general
+            // REQUISITO DIAGRAMA 2: CaC requiere nivel 10 de XP
             if (branchId.equals(SkillRegistry.BRANCH_MELEE) && currentLevel == 0) {
                 if (player.experienceLevel < 10) {
                     player.sendSystemMessage(Component.literal(
-                            "§c🔒 [RPG] Para desbloquear el camino Cuerpo a Cuerpo (CaC) necesitas al menos §eNivel 10 de XP§c.\n§7(Tu nivel actual: §f" + player.experienceLevel + "§7)"
+                            "§c🔒 [RPG] Para desbloquear Cuerpo a Cuerpo (CaC) necesitas §eNivel 10 de XP§c. (Tienes: " + player.experienceLevel + ")"
                     ));
                     return;
                 }
             }
 
-            // Práctica de bajas
+            // REQUISITO DIAGRAMA 1: Arquería requiere nivel 5 de XP
+            if (branchId.equals(SkillRegistry.BRANCH_RANGED) && currentLevel == 0) {
+                if (player.experienceLevel < 5) {
+                    player.sendSystemMessage(Component.literal(
+                            "§c🔒 [RPG] Para desbloquear Arquería necesitas §bNivel 5 de XP§c. (Tienes: " + player.experienceLevel + ")"
+                    ));
+                    return;
+                }
+            }
+
             ResourceLocation counter = branchName.equalsIgnoreCase("ranged") ? SkillRegistry.COUNTER_RANGED_KILLS : SkillRegistry.COUNTER_MELEE_KILLS;
             int playerKills = skills.getPractice(counter);
 

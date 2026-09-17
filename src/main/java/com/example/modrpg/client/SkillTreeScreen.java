@@ -1,22 +1,31 @@
 package com.example.modrpg.client;
 
 import com.example.modrpg.networking.ModMessages;
-import com.example.modrpg.networking.PacketUpgradeSkill;
+import com.example.modrpg.networking.PacketUnlockNode;
+import com.example.modrpg.skills.PlayerSkills;
 import com.example.modrpg.skills.PlayerSkillsProvider;
-import com.example.modrpg.skills.SkillEconomy;
+import com.example.modrpg.skills.data.SkillNode;
+import com.example.modrpg.skills.data.SkillRegistry;
+import com.example.modrpg.skills.data.SkillRequirement;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+
+import java.util.ArrayList;
+import java.util.List;
 
 public class SkillTreeScreen extends Screen {
 
-    private final int panelWidth = 370;
-    private final int panelHeight = 250;
-    private int leftPos;
-    private int topPos;
+    // Desplazamiento de cámara (Pan / Drag)
+    private double scrollX = 0;
+    private double scrollY = 0;
+
+    private static final int NODE_SIZE = 26;
 
     public SkillTreeScreen() {
         super(Component.literal("Árbol de Habilidades RPG"));
@@ -25,111 +34,183 @@ public class SkillTreeScreen extends Screen {
     @Override
     protected void init() {
         super.init();
-        this.leftPos = (this.width - this.panelWidth) / 2;
-        this.topPos = (this.height - this.panelHeight) / 2;
+        // Botón para recentrar cámara
+        this.addRenderableWidget(Button.builder(Component.literal("⌖ Recentrar"), btn -> {
+            this.scrollX = 0;
+            this.scrollY = 0;
+        }).bounds(10, 10, 80, 20).build());
 
-        // Botón Subir Melee
-        this.addRenderableWidget(Button.builder(Component.literal("+ Subir"), btn -> {
-            ModMessages.sendToServer(new PacketUpgradeSkill("melee"));
-        }).bounds(leftPos + 275, topPos + 38, 75, 20).build());
-
-        // Botón Subir Distancia
-        this.addRenderableWidget(Button.builder(Component.literal("+ Subir"), btn -> {
-            ModMessages.sendToServer(new PacketUpgradeSkill("ranged"));
-        }).bounds(leftPos + 275, topPos + 80, 75, 20).build());
-
-        // Botón Subir Movilidad
-        this.addRenderableWidget(Button.builder(Component.literal("+ Subir"), btn -> {
-            ModMessages.sendToServer(new PacketUpgradeSkill("mobility"));
-        }).bounds(leftPos + 275, topPos + 122, 75, 20).build());
-
-        // Botón Cerrar
+        // Botón cerrar
         this.addRenderableWidget(Button.builder(Component.literal("Cerrar"), btn -> this.onClose())
-                .bounds(leftPos + (panelWidth / 2) - 45, topPos + panelHeight - 22, 90, 18).build());
+                .bounds(this.width - 70, 10, 60, 20).build());
+    }
+
+    @Override
+    public boolean mouseDragged(double mouseX, double mouseY, int button, double dragX, double dragY) {
+        // Clic izquierdo o derecho para arrastrar el lienzo
+        if (button == 0 || button == 1) {
+            this.scrollX += dragX;
+            this.scrollY += dragY;
+            return true;
+        }
+        return super.mouseDragged(mouseX, mouseY, button, dragX, dragY);
+    }
+
+    @Override
+    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (super.mouseClicked(mouseX, mouseY, button)) return true;
+
+        if (button == 0) { // Clic izquierdo sobre un nodo para comprarlo
+            int centerX = (int) (this.width / 2 + scrollX);
+            int centerY = (int) (this.height / 2 + scrollY);
+
+            Player player = Minecraft.getInstance().player;
+            if (player != null) {
+                PlayerSkills skills = player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).orElse(null);
+                if (skills != null) {
+                    for (SkillNode node : SkillRegistry.getAll()) {
+                        int nx = centerX + node.getPosX() - (NODE_SIZE / 2);
+                        int ny = centerY + node.getPosY() - (NODE_SIZE / 2);
+
+                        if (mouseX >= nx && mouseX <= nx + NODE_SIZE && mouseY >= ny && mouseY <= ny + NODE_SIZE) {
+                            if (!skills.isNodeUnlocked(node.getId())) {
+                                ModMessages.sendToServer(new PacketUnlockNode(node.getId()));
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return false;
     }
 
     @Override
     public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
+        // 1. Fondo oscuro estilo RPG
         this.renderBackground(guiGraphics);
+        guiGraphics.fill(0, 0, this.width, this.height, 0xDD0D0D12);
 
-        // Fondo del panel
-        guiGraphics.fill(leftPos, topPos, leftPos + panelWidth, topPos + panelHeight, 0xF0141418);
-
-        // Bordes dorados decorativos
-        guiGraphics.fill(leftPos - 1, topPos - 1, leftPos + panelWidth + 1, topPos, 0xFFDAA520);
-        guiGraphics.fill(leftPos - 1, topPos + panelHeight, leftPos + panelWidth + 1, topPos + panelHeight + 1, 0xFFDAA520);
-        guiGraphics.fill(leftPos - 1, topPos, leftPos, topPos + panelHeight, 0xFFDAA520);
-        guiGraphics.fill(leftPos + panelWidth, topPos, leftPos + panelWidth + 1, topPos + panelHeight, 0xFFDAA520);
-
-        guiGraphics.drawCenteredString(this.font, "§6§l⚔ ÁRBOL DE HABILIDADES RPG ⚔",
-                leftPos + (panelWidth / 2), topPos + 10, 0xFFFFFF);
+        int centerX = (int) (this.width / 2 + scrollX);
+        int centerY = (int) (this.height / 2 + scrollY);
 
         Player player = Minecraft.getInstance().player;
-        if (player != null) {
-            player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
-                // ================= RAMA 1: MELEE =================
-                int meleeLvl = skills.getMeleeLevel();
-                int nextMeleeKills = SkillEconomy.getRequiredKills(meleeLvl + 1);
-                int meleeCost = SkillEconomy.getXpCost(meleeLvl);
+        PlayerSkills skills = (player != null) ? player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).orElse(null) : null;
 
-                guiGraphics.drawString(this.font, "§c§l⚔ Combate CaC: §fNivel " + meleeLvl + "/100", leftPos + 16, topPos + 34, 0xFFFFFF, false);
-                guiGraphics.drawString(this.font, "§7Bajas: §e" + skills.getMeleeKills() + "/" + nextMeleeKills + " §7| Costo: §a" + meleeCost + " XP", leftPos + 16, topPos + 45, 0xAAAAAA, false);
-                drawProgressBar(guiGraphics, leftPos + 16, topPos + 56, 245, 6, meleeLvl, 0xFFFF3333);
+        // 2. Dibujar líneas de conexión entre nodos
+        for (SkillNode node : SkillRegistry.getAll()) {
+            int startX = centerX + node.getPosX();
+            int startY = centerY + node.getPosY();
 
-                // ================= RAMA 2: DISTANCIA =================
-                int rangedLvl = skills.getRangedLevel();
-                int nextRangedKills = SkillEconomy.getRequiredKills(rangedLvl + 1);
-                int rangedCost = SkillEconomy.getXpCost(rangedLvl);
+            int targetX = centerX;
+            int targetY = centerY;
 
-                guiGraphics.drawString(this.font, "§b§l🏹 Arquería: §fNivel " + rangedLvl + "/100", leftPos + 16, topPos + 76, 0xFFFFFF, false);
-                guiGraphics.drawString(this.font, "§7Bajas: §e" + skills.getRangedKills() + "/" + nextRangedKills + " §7| Costo: §a" + rangedCost + " XP", leftPos + 16, topPos + 87, 0xAAAAAA, false);
-                drawProgressBar(guiGraphics, leftPos + 16, topPos + 98, 245, 6, rangedLvl, 0xFF33CCFF);
+            if (node.getParentId() != null) {
+                SkillNode parent = SkillRegistry.get(node.getParentId());
+                if (parent != null) {
+                    targetX = centerX + parent.getPosX();
+                    targetY = centerY + parent.getPosY();
+                }
+            }
 
-                // ================= RAMA 3: MOVILIDAD =================
-                int mobLvl = skills.getMobilityLevel();
-                int totalKills = skills.getMeleeKills() + skills.getRangedKills();
-                int nextMobKills = SkillEconomy.getRequiredKills(mobLvl + 1);
-                int mobCost = SkillEconomy.getXpCost(mobLvl);
+            boolean isUnlocked = (skills != null && skills.isNodeUnlocked(node.getId()));
+            int lineColor = isUnlocked ? 0xFFDAA520 : 0xFF444455;
 
-                guiGraphics.drawString(this.font, "§a§l🏃 Movilidad: §fNivel " + mobLvl + "/100", leftPos + 16, topPos + 118, 0xFFFFFF, false);
-                guiGraphics.drawString(this.font, "§7Práctica: §e" + totalKills + "/" + nextMobKills + " §7| Costo: §a" + mobCost + " XP", leftPos + 16, topPos + 129, 0xAAAAAA, false);
-                drawProgressBar(guiGraphics, leftPos + 16, topPos + 140, 245, 6, mobLvl, 0xFF33FF66);
+            drawLine(guiGraphics, targetX, targetY, startX, startY, lineColor);
+        }
 
-                // ================= SECCIÓN DE TALENTOS =================
-                guiGraphics.fill(leftPos + 12, topPos + 155, leftPos + panelWidth - 12, topPos + 220, 0x55000000);
-                guiGraphics.drawString(this.font, "§eTalentos CaC y Arquería Desbloqueados:", leftPos + 16, topPos + 160, 0xFFFFFF, false);
+        // 3. Dibujar nodo central de inicio ("Inicia tu aventura")
+        guiGraphics.fill(centerX - 18, centerY - 18, centerX + 18, centerY + 18, 0xFF222233);
+        guiGraphics.fill(centerX - 16, centerY - 16, centerX + 16, centerY + 16, 0xFFDAA520);
+        guiGraphics.renderItem(new ItemStack(Items.COMPASS), centerX - 8, centerY - 8);
 
-                // Fila 1: Nivel Bajo
-                String doubleStatus = skills.hasDoubleAttack() ? "§a✔ [Activo]" : "§c✖ [Req. CaC 4]";
-                guiGraphics.drawString(this.font, "§c⚔ Doble Ataque: " + doubleStatus, leftPos + 16, topPos + 173, 0xFFFFFF, false);
+        // 4. Dibujar cada nodo del árbol
+        SkillNode hoveredNode = null;
+        for (SkillNode node : SkillRegistry.getAll()) {
+            int nx = centerX + node.getPosX() - (NODE_SIZE / 2);
+            int ny = centerY + node.getPosY() - (NODE_SIZE / 2);
 
-                String tailwindStatus = skills.hasTailwind() ? "§a✔ [Activo]" : "§c✖ [Req. Arq 5]";
-                guiGraphics.drawString(this.font, "§b💨 Viento a Favor: " + tailwindStatus, leftPos + 185, topPos + 173, 0xFFFFFF, false);
+            boolean isUnlocked = (skills != null && skills.isNodeUnlocked(node.getId()));
 
-                // Fila 2: Nivel Medio
-                String spinStatus = skills.hasSpinAttack() ? "§a✔ [Tecla V]" : "§c✖ [Req. CaC 20]";
-                guiGraphics.drawString(this.font, "§b🌀 Torbellino: " + spinStatus, leftPos + 16, topPos + 188, 0xFFFFFF, false);
+            int borderColor;
+            switch (node.getType()) {
+                case ULTIMATE -> borderColor = isUnlocked ? 0xFF55FF55 : 0xFF00AA00;
+                case HYBRID_SYNERGY -> borderColor = isUnlocked ? 0xFFFF55FF : 0xFFAA00AA;
+                case ACTIVE_ABILITY -> borderColor = isUnlocked ? 0xFFFFAA00 : 0xFFCC6600;
+                default -> borderColor = isUnlocked ? 0xFF55FFFF : 0xFF0088AA;
+            }
 
-                String hybridStatus = skills.hasHybridRangedMelee() ? "§a✔ [Activo]" : "§c✖ [Req. 25/25]";
-                guiGraphics.drawString(this.font, "§d☯ Cazador Híbrido: " + hybridStatus, leftPos + 185, topPos + 188, 0xFFFFFF, false);
+            // Marco y fondo del nodo
+            guiGraphics.fill(nx - 1, ny - 1, nx + NODE_SIZE + 1, ny + NODE_SIZE + 1, borderColor);
+            guiGraphics.fill(nx, ny, nx + NODE_SIZE, ny + NODE_SIZE, isUnlocked ? 0xFF1A1A24 : 0xFF0A0A0E);
 
-                // Fila 3: Maestría
-                String capstoneStatus = skills.hasCapstoneMelee() ? "§a✔ [Tecla R]" : "§c✖ [Req. CaC 50]";
-                guiGraphics.drawString(this.font, "§6⚡ Golpe 500%: " + capstoneStatus, leftPos + 16, topPos + 203, 0xFFFFFF, false);
+            // Icono
+            guiGraphics.renderItem(node.getIcon(), nx + (NODE_SIZE - 16) / 2, ny + (NODE_SIZE - 16) / 2);
 
-                String hypersonicStatus = skills.hasHypersonicArrow() ? "§a✔ [Sneak+Tiro]" : "§c✖ [Req. Arq 50]";
-                guiGraphics.drawString(this.font, "§9⚡ Hipersónica: " + hypersonicStatus, leftPos + 185, topPos + 203, 0xFFFFFF, false);
-            });
+            // Detección de cursor encima
+            if (mouseX >= nx && mouseX <= nx + NODE_SIZE && mouseY >= ny && mouseY <= ny + NODE_SIZE) {
+                hoveredNode = node;
+            }
         }
 
         super.render(guiGraphics, mouseX, mouseY, partialTick);
+
+        // Título de navegación
+        guiGraphics.drawString(this.font, "§6§lÁRBOL DE HABILIDADES §7(Arrastra con el ratón para navegar)", 100, 16, 0xFFFFFF);
+
+        // 5. Tooltip flotante
+        if (hoveredNode != null && skills != null) {
+            List<Component> tooltip = new ArrayList<>();
+            tooltip.add(Component.literal("§l" + hoveredNode.getDisplayName().getString()));
+
+            String typeBadge = switch (hoveredNode.getType()) {
+                case ULTIMATE -> "§6★ DEFINITIVA";
+                case HYBRID_SYNERGY -> "§d☯ SINERGIA HÍBRIDA";
+                case ACTIVE_ABILITY -> "§e⚡ HABILIDAD ACTIVA";
+                default -> "§b◆ PASIVA";
+            };
+            tooltip.add(Component.literal(typeBadge));
+            tooltip.add(Component.literal("§7" + hoveredNode.getDescription().getString()));
+            tooltip.add(Component.literal(""));
+
+            boolean isUnlocked = skills.isNodeUnlocked(hoveredNode.getId());
+            if (isUnlocked) {
+                tooltip.add(Component.literal("§a§l✔ [DESBLOQUEADA]"));
+            } else {
+                tooltip.add(Component.literal("§eRequisitos:"));
+                for (SkillRequirement req : hoveredNode.getRequirements()) {
+                    tooltip.add(req.getTooltip(null, skills));
+                }
+                tooltip.add(Component.literal(""));
+                tooltip.add(Component.literal("§a[Clic izquierdo para comprar]"));
+            }
+
+            guiGraphics.renderComponentTooltip(this.font, tooltip, mouseX, mouseY);
+        }
     }
 
-    private void drawProgressBar(GuiGraphics guiGraphics, int x, int y, int width, int height, int level, int color) {
-        guiGraphics.fill(x, y, x + width, y + height, 0xFF2A2A2E);
-        int filledWidth = (int) ((level / 100.0f) * width);
-        if (filledWidth > 0) {
-            guiGraphics.fill(x, y, x + filledWidth, y + height, color);
+    private void drawLine(GuiGraphics guiGraphics, int x1, int y1, int x2, int y2, int color) {
+        int dx = Math.abs(x2 - x1);
+        int dy = Math.abs(y2 - y1);
+        int sx = x1 < x2 ? 1 : -1;
+        int sy = y1 < y2 ? 1 : -1;
+        int err = dx - dy;
+
+        int currX = x1;
+        int currY = y1;
+
+        while (true) {
+            guiGraphics.fill(currX - 1, currY - 1, currX + 1, currY + 1, color);
+            if (currX == x2 && currY == y2) break;
+            int e2 = 2 * err;
+            if (e2 > -dy) {
+                err -= dy;
+                currX += sx;
+            }
+            if (e2 < dx) {
+                err += dx;
+                currY += sy;
+            }
         }
     }
 
