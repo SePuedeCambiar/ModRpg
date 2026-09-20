@@ -125,8 +125,32 @@ public class PlayerSkills {
     public void setUltimateCharged(boolean charged) { this.ultimateCharged = charged; }
 
     // =========================================================================
-    // CLONACIÓN TRAS MORIR O CAMBIAR DE DIMENSIÓN
+    // SINCRONIZACIÓN Y CLONACIÓN (Seguro y Atómico)
     // =========================================================================
+
+    /**
+     * Reemplazo limpio y seguro de todos los datos recibidos desde el servidor.
+     * Evita UnsupportedOperationException en colecciones unmodifiable.
+     */
+    public void replaceAll(Map<ResourceLocation, Integer> branches,
+                           Set<ResourceLocation> nodes,
+                           Map<ResourceLocation, Integer> counters,
+                           Map<ResourceLocation, Integer> cds,
+                           boolean ultCharged) {
+        this.branchLevels.clear();
+        this.branchLevels.putAll(branches);
+
+        this.unlockedNodes.clear();
+        this.unlockedNodes.addAll(nodes);
+
+        this.practiceCounters.clear();
+        this.practiceCounters.putAll(counters);
+
+        this.cooldowns.clear();
+        this.cooldowns.putAll(cds);
+
+        this.ultimateCharged = ultCharged;
+    }
 
     public void copyFrom(PlayerSkills source) {
         this.branchLevels.clear();
@@ -238,11 +262,9 @@ public class PlayerSkills {
     public boolean hasDoubleAttack() { return isNodeUnlocked(SkillRegistry.NODE_DOUBLE_ATTACK) || getMeleeLevel() >= 4; }
     public void setDoubleAttack(boolean u) { if (u) unlockNode(SkillRegistry.NODE_DOUBLE_ATTACK); else lockNode(SkillRegistry.NODE_DOUBLE_ATTACK); }
 
-    // Apuntan al Torbellino Ultrapesado (Diagrama 2)
     public boolean hasSpinAttack() { return isNodeUnlocked(SkillRegistry.NODE_HEAVY_TORNADO) || getMeleeLevel() >= 10; }
     public void setSpinAttack(boolean u) { if (u) unlockNode(SkillRegistry.NODE_HEAVY_TORNADO); else lockNode(SkillRegistry.NODE_HEAVY_TORNADO); }
 
-    // Apuntan al Ultracorte Final de 10 min (Diagrama 2)
     public boolean hasCapstoneMelee() { return isNodeUnlocked(SkillRegistry.NODE_ULTRACUT) || getMeleeLevel() >= 100; }
     public void setCapstoneMelee(boolean u) { if (u) unlockNode(SkillRegistry.NODE_ULTRACUT); else lockNode(SkillRegistry.NODE_ULTRACUT); }
 

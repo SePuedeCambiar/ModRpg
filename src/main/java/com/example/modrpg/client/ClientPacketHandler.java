@@ -11,21 +11,14 @@ public class ClientPacketHandler {
         Player player = Minecraft.getInstance().player;
         if (player != null) {
             player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
-                // 1. Reemplazar ramas
-                skills.getAllBranchLevels(); // vista
-                msg.branchLevels.forEach(skills::setBranchLevel);
-
-                // 2. Reemplazar nodos desbloqueados
-                skills.getUnlockedNodes().clear();
-                msg.unlockedNodes.forEach(skills::unlockNode);
-
-                // 3. Reemplazar contadores de práctica
-                msg.practiceCounters.forEach(skills::setPractice);
-
-                // 4. Reemplazar cooldowns
-                msg.cooldowns.forEach(skills::setCooldown);
-
-                skills.setUltimateCharged(msg.ultimateCharged);
+                // Sincronización atómica y segura sin tocar listas inmutables
+                skills.replaceAll(
+                        msg.branchLevels,
+                        msg.unlockedNodes,
+                        msg.practiceCounters,
+                        msg.cooldowns,
+                        msg.ultimateCharged
+                );
             });
         }
     }

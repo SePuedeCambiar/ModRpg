@@ -2,10 +2,10 @@ package com.example.modrpg.events;
 
 import com.example.modrpg.ModRpg;
 import com.example.modrpg.commands.RpgCommands;
-import com.example.modrpg.skills.PlayerSkills;
 import com.example.modrpg.skills.PlayerSkillsProvider;
 import com.example.modrpg.skills.SkillAttributes;
 import com.example.modrpg.skills.SkillEconomy;
+import com.example.modrpg.skills.SkillProgression;
 import com.example.modrpg.skills.data.SkillNode;
 import com.example.modrpg.skills.data.SkillRegistry;
 import net.minecraft.network.chat.Component;
@@ -26,10 +26,6 @@ import net.minecraftforge.fml.common.Mod;
 
 @Mod.EventBusSubscriber(modid = ModRpg.MODID)
 public class ModEvents {
-
-    // Guardia de recursión: evita que golpes secundarios (doble ataque, magias)
-    // disparen un bucle infinito de eventos que congele el servidor
-    private static final ThreadLocal<Boolean> IS_PROCESSING_HURT = ThreadLocal.withInitial(() -> false);
 
     @SuppressWarnings({"removal", "deprecation"})
     @SubscribeEvent
@@ -56,7 +52,6 @@ public class ModEvents {
 
         if (event.getEntity() instanceof ServerPlayer serverPlayer) {
             SkillAttributes.applyModifiers(serverPlayer);
-            updateStepHeight(serverPlayer);
             SkillEconomy.syncSkills(serverPlayer);
         }
     }
@@ -64,9 +59,8 @@ public class ModEvents {
     @SubscribeEvent
     public static void onPlayerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
         if (event.getEntity() instanceof ServerPlayer serverPlayer) {
-            serverPlayer.sendSystemMessage(Component.literal("§a[ModRpg] §f¡Sistema modular RPG cargado con éxito!"));
+            serverPlayer.sendSystemMessage(Component.literal("§a[ModRpg] §f¡Sistema RPG cargado con éxito!"));
             SkillAttributes.applyModifiers(serverPlayer);
-            updateStepHeight(serverPlayer);
             SkillEconomy.syncSkills(serverPlayer);
         }
     }
@@ -80,15 +74,14 @@ public class ModEvents {
     public static void onPlayerTick(TickEvent.PlayerTickEvent event) {
         if (event.phase == TickEvent.Phase.END && !event.player.level().isClientSide() && event.player instanceof ServerPlayer serverPlayer) {
             serverPlayer.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
-                // 1. OPTIMIZACIÓN: Solo iterar si hay enfriamientos activos
+                // 1. Enfriamientos activos
                 if (!skills.getAllCooldowns().isEmpty()) {
                     skills.tickCooldowns();
                 }
 
-                // 2. OPTIMIZACIÓN: Solo escribir la altura si difiere del valor actual
-                float targetStep = skills.isNodeUnlocked(SkillRegistry.NODE_LIGHT_STEP) ? 1.25f : 0.6f;
-                if (Math.abs(serverPlayer.maxUpStep() - targetStep) > 0.01f) {
-                    serverPlayer.setMaxUpStep(targetStep);
+                // 2. Práctica de Movilidad: acumular metros al esprintar (1 punto cada segundo / 20 ticks)
+                if (serverPlayer.isSprinting() && serverPlayer.tickCount % 20 == 0) {
+                    skills.addPractice(SkillRegistry.COUNTER_DISTANCE_RUN, 1);
                 }
             });
         }
@@ -98,11 +91,15 @@ public class ModEvents {
     public static void onLivingDeath(LivingDeathEvent event) {
         if (event.getSource().getEntity() instanceof ServerPlayer player) {
             player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
+                // Si el golpe mortal fue directo con arma cuerpo a cuerpo
                 if (event.getSource().getDirectEntity() == player) {
                     skills.addPractice(SkillRegistry.COUNTER_MELEE_KILLS, 1);
-                } else {
+                }
+                // Si fue con proyectil (flecha, tridente, etc.)
+                else if (event.getSource().getDirectEntity() instanceof AbstractArrow) {
                     skills.addPractice(SkillRegistry.COUNTER_RANGED_KILLS, 1);
                 }
+
                 SkillEconomy.checkMilestones(player, skills);
                 SkillEconomy.syncSkills(player);
             });
@@ -127,56 +124,60 @@ public class ModEvents {
 
     @SubscribeEvent
     public static void onLivingHurt(LivingHurtEvent event) {
-        // OPTIMIZACIÓN CRÍTICA: Si ya estamos dentro de un cálculo de daño del mod,
-        // no procesar recursivamente para evitar tirones de TPS y bucles infinitos
-        if (IS_PROCESSING_HURT.get()) return;
-
         Entity attacker = event.getSource().getEntity();
         Entity target = event.getEntity();
 
-        try {
-            IS_PROCESSING_HURT.set(true);
+        // =========================================================================
+        // 1. EL JUGADOR ES LA VÍCTIMA (Defensa y mitigación)
+        // =========================================================================
+        if (target instanceof ServerPlayer victim) {
+            victim.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
+                int defLvl = skills.getBranchLevel(SkillRegistry.BRANCH_DEFENSE);
 
-            // 1. Daño saliente del jugador (Habilidades ofensivas)
-            if (attacker instanceof ServerPlayer player) {
-                player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
-                    if (event.getSource().getDirectEntity() instanceof AbstractArrow) {
-                        int rangedLvl = skills.getBranchLevel(SkillRegistry.BRANCH_RANGED);
-                        if (rangedLvl > 0) {
-                            float bonus = 1.0f + (float) Math.pow(rangedLvl / 100.0, 1.5) * 2.5f;
-                            event.setAmount(event.getAmount() * bonus);
-                        }
-                    }
+                // Mitigación pasiva según la curva de defensa
+                if (defLvl > 0) {
+                    float factor = SkillProgression.getDefenseDamageFactor(defLvl);
+                    event.setAmount(event.getAmount() * factor);
+                    skills.addPractice(SkillRegistry.COUNTER_DAMAGE_BLOCKED, 1);
+                }
 
-                    for (ResourceLocation nodeId : skills.getUnlockedNodes()) {
-                        SkillNode node = SkillRegistry.get(nodeId);
-                        if (node != null) {
-                            node.onLivingHurt(player, event, skills);
-                        }
-                    }
-                });
-            }
+                // Práctica extra al bloquear con escudo
+                if (victim.isBlocking()) {
+                    skills.addPractice(SkillRegistry.COUNTER_DAMAGE_BLOCKED, 2);
+                }
 
-            // 2. Daño entrante al jugador (Habilidades defensivas / mitigación)
-            if (target instanceof ServerPlayer victim) {
-                victim.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
-                    for (ResourceLocation nodeId : skills.getUnlockedNodes()) {
-                        SkillNode node = SkillRegistry.get(nodeId);
-                        if (node != null) {
-                            node.onLivingHurt(victim, event, skills);
-                        }
+                // Habilidades pasivas o reactivas de defensa
+                for (ResourceLocation nodeId : skills.getUnlockedNodes()) {
+                    SkillNode node = SkillRegistry.get(nodeId);
+                    if (node != null) {
+                        node.onLivingHurt(victim, event, skills);
                     }
-                });
-            }
-        } finally {
-            IS_PROCESSING_HURT.set(false);
+                }
+            });
         }
-    }
 
-    private static void updateStepHeight(ServerPlayer player) {
-        player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
-            float targetStep = skills.isNodeUnlocked(SkillRegistry.NODE_LIGHT_STEP) ? 1.25f : 0.6f;
-            player.setMaxUpStep(targetStep);
-        });
+        // =========================================================================
+        // 2. EL JUGADOR ES EL ATACANTE (Daño saliente y habilidades ofensivas)
+        // =========================================================================
+        if (attacker instanceof ServerPlayer player) {
+            player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
+                // Bono de daño a distancia por nivel de Arquería
+                if (event.getSource().getDirectEntity() instanceof AbstractArrow) {
+                    int rangedLvl = skills.getBranchLevel(SkillRegistry.BRANCH_RANGED);
+                    if (rangedLvl > 0) {
+                        float bonus = 1.0f + (float) Math.pow(rangedLvl / 100.0, 1.5) * 2.5f;
+                        event.setAmount(event.getAmount() * bonus);
+                    }
+                }
+
+                // Notificar a los nodos ofensivos desbloqueados
+                for (ResourceLocation nodeId : skills.getUnlockedNodes()) {
+                    SkillNode node = SkillRegistry.get(nodeId);
+                    if (node != null) {
+                        node.onLivingHurt(player, event, skills);
+                    }
+                }
+            });
+        }
     }
 }
