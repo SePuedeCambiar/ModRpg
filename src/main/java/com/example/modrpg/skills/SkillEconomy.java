@@ -1,6 +1,7 @@
 package com.example.modrpg.skills;
 
 import com.example.modrpg.ModRpg;
+import com.example.modrpg.skills.data.SkillBranch;
 import com.example.modrpg.skills.data.SkillNode;
 import com.example.modrpg.skills.data.SkillRegistry;
 import net.minecraft.network.chat.Component;
@@ -25,48 +26,36 @@ public class SkillEconomy {
     public static void upgradeBranch(ServerPlayer player, String branchName) {
         player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
             ResourceLocation branchId = new ResourceLocation(ModRpg.MODID, branchName.toLowerCase());
-            int currentLevel = skills.getBranchLevel(branchId);
+            SkillBranch branch = SkillRegistry.getBranch(branchId);
 
-            if (currentLevel >= MAX_LEVEL) {
-                player.sendSystemMessage(Component.literal("§6[RPG] ¡Ya has alcanzado el nivel máximo en " + branchName.toUpperCase() + "!"));
+            if (branch == null) {
+                player.sendSystemMessage(Component.literal("§c[RPG] Rama desconocida: " + branchName));
                 return;
             }
 
-            // REGLAS DE ENTRADA DEL DIAGRAMA 1
-            if (currentLevel == 0) {
-                if (branchId.equals(SkillRegistry.BRANCH_MELEE) && player.experienceLevel < 10) {
-                    player.sendSystemMessage(Component.literal("§c🔒 [RPG] Cuerpo a Cuerpo requiere §eNivel 10 de XP§c. (Tienes: " + player.experienceLevel + ")"));
-                    return;
-                }
-                if (branchId.equals(SkillRegistry.BRANCH_RANGED) && player.experienceLevel < 5) {
-                    player.sendSystemMessage(Component.literal("§c🔒 [RPG] Arquería requiere §bNivel 5 de XP§c. (Tienes: " + player.experienceLevel + ")"));
-                    return;
-                }
-                if (branchId.equals(SkillRegistry.BRANCH_MAGIC) && player.experienceLevel < 5) {
-                    player.sendSystemMessage(Component.literal("§c🔒 [RPG] Magia requiere §dNivel 5 de XP§c. (Tienes: " + player.experienceLevel + ")"));
-                    return;
-                }
-                if (branchId.equals(SkillRegistry.BRANCH_DEFENSE) && player.experienceLevel < 8) {
-                    player.sendSystemMessage(Component.literal("§c🔒 [RPG] Defensa requiere §6Nivel 8 de XP§c. (Tienes: " + player.experienceLevel + ")"));
-                    return;
-                }
-                if (branchId.equals(SkillRegistry.BRANCH_MOBILITY) && player.experienceLevel < 10) {
-                    player.sendSystemMessage(Component.literal("§c🔒 [RPG] Movilidad requiere §aNivel 10 de XP§c. (Tienes: " + player.experienceLevel + ")"));
-                    return;
-                }
+            int currentLevel = skills.getBranchLevel(branchId);
+            if (currentLevel >= MAX_LEVEL) {
+                player.sendSystemMessage(Component.literal("§6[RPG] ¡Ya has alcanzado el nivel máximo en " + branch.displayName().getString() + "!"));
+                return;
             }
 
-            // Requisito de práctica
-            ResourceLocation counter = branchName.equalsIgnoreCase("ranged") ? SkillRegistry.COUNTER_RANGED_KILLS : SkillRegistry.COUNTER_MELEE_KILLS;
-            int playerKills = skills.getPractice(counter);
+            // Validación de desbloqueo inicial 100% dinámico
+            if (currentLevel == 0 && player.experienceLevel < branch.minPlayerXpToUnlock()) {
+                player.sendSystemMessage(Component.literal(
+                        "§c🔒 [RPG] Desbloquear " + branch.displayName().getString() + " requiere §eNivel " + branch.minPlayerXpToUnlock() + " de XP§c. (Tienes: " + player.experienceLevel + ")"
+                ));
+                return;
+            }
 
+            // Práctica acumulada según la rama correspondiente
+            int playerPractice = skills.getPractice(branch.practiceCounterId());
             int nextLevel = currentLevel + 1;
             int xpCost = getXpCost(currentLevel);
-            int killsNeeded = getRequiredKills(nextLevel);
+            int practiceNeeded = getRequiredKills(nextLevel);
 
-            if (playerKills < killsNeeded) {
+            if (playerPractice < practiceNeeded) {
                 player.sendSystemMessage(Component.literal(
-                        "§c[RPG] ¡Te falta práctica de combate!\n§7Necesitas: §e" + killsNeeded + " bajas §7(Tienes: §f" + playerKills + "§7)"
+                        "§c[RPG] ¡Te falta práctica!\n§7Necesitas: §e" + practiceNeeded + " puntos §7(Tienes: §f" + playerPractice + "§7)"
                 ));
                 return;
             }
@@ -83,7 +72,7 @@ public class SkillEconomy {
             SkillAttributes.applyModifiers(player);
 
             player.level().playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.PLAYER_LEVELUP, SoundSource.PLAYERS, 0.8f, 1.2f);
-            player.sendSystemMessage(Component.literal("§a§l✔ [RPG] ¡Rama " + branchName.toUpperCase() + " mejorada a Nivel " + nextLevel + "! §7(-" + xpCost + " Niveles XP)"));
+            player.sendSystemMessage(Component.literal("§a§l✔ [RPG] ¡Rama " + branch.displayName().getString() + " mejorada a Nivel " + nextLevel + "! §7(-" + xpCost + " Niveles XP)"));
 
             checkMilestones(player, skills);
             syncSkills(player);

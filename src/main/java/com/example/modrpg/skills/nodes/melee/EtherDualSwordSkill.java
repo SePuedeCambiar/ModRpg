@@ -34,20 +34,21 @@ public class EtherDualSwordSkill extends SkillNode {
         LivingEntity target = event.getEntity();
         if (target == null || target.getTags().contains(ETHER_TAG)) return;
 
-        // Solo con espada y ataque directo
         if (event.getSource().getDirectEntity() == player && player.getMainHandItem().getItem() instanceof SwordItem) {
-            ServerLevel level = (ServerLevel) player.level();
             float magicDamage = event.getAmount() * 0.75f;
 
-            target.addTag(ETHER_TAG);
-            target.invulnerableTime = 0;
-            target.hurt(player.damageSources().magic(), magicDamage);
-            target.invulnerableTime = 10;
+            try {
+                target.addTag(ETHER_TAG);
+                target.invulnerableTime = 0;
+                target.hurt(player.damageSources().magic(), magicDamage);
+                target.invulnerableTime = 10;
+            } finally {
+                target.removeTag(ETHER_TAG);
+            }
 
-            // Animación de mano secundaria (mano libre o espada etérea)
+            ServerLevel level = (ServerLevel) player.level();
             player.swing(InteractionHand.OFF_HAND, true);
 
-            // Partículas mágicas de espada espiritual
             level.sendParticles(ParticleTypes.ENCHANTED_HIT, target.getX(), target.getY() + 1.0, target.getZ(), 25, 0.3, 0.4, 0.3, 0.15);
             level.sendParticles(ParticleTypes.SOUL, target.getX(), target.getY() + 0.8, target.getZ(), 10, 0.2, 0.3, 0.2, 0.05);
             level.playSound(null, target.getX(), target.getY(), target.getZ(), SoundEvents.ILLUSIONER_CAST_SPELL, SoundSource.PLAYERS, 0.8f, 1.6f);

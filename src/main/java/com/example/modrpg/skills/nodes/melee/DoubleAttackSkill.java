@@ -37,10 +37,15 @@ public class DoubleAttackSkill extends SkillNode {
             float singleHitDamage = event.getAmount() * 0.80f;
             event.setAmount(singleHitDamage);
 
-            target.addTag(RECURSION_TAG);
-            target.invulnerableTime = 0;
-            target.hurt(player.damageSources().playerAttack(player), singleHitDamage);
-            target.invulnerableTime = 10;
+            try {
+                target.addTag(RECURSION_TAG);
+                target.invulnerableTime = 0;
+                target.hurt(player.damageSources().playerAttack(player), singleHitDamage);
+                target.invulnerableTime = 10;
+            } finally {
+                // CRÍTICO: Remover tag para que el siguiente golpe vuelva a funcionar
+                target.removeTag(RECURSION_TAG);
+            }
 
             ServerLevel level = (ServerLevel) player.level();
             player.swing(InteractionHand.MAIN_HAND, true);
@@ -48,7 +53,7 @@ public class DoubleAttackSkill extends SkillNode {
             level.sendParticles(ParticleTypes.CRIT, target.getX(), target.getY() + 0.9, target.getZ(), 12, 0.25, 0.25, 0.25, 0.1);
             level.playSound(null, target.getX(), target.getY(), target.getZ(), SoundEvents.PLAYER_ATTACK_SWEEP, SoundSource.PLAYERS, 1.0f, 1.4f);
 
-            player.displayClientMessage(Component.literal("§c§l⚔ ¡DOBLE ATAQUE! §f(2 impactos consecutivos al 80%)"), true);
+            player.displayClientMessage(Component.literal("§c§l⚔ ¡DOBLE ATAQUE! §f(2 impactos al 80%)"), true);
         }
     }
 }

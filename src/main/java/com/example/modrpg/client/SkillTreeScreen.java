@@ -12,6 +12,7 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -34,20 +35,20 @@ public class SkillTreeScreen extends Screen {
     @Override
     protected void init() {
         super.init();
-        // Botón para recentrar cámara
+        // Botón para recentrar la cámara al origen
         this.addRenderableWidget(Button.builder(Component.literal("⌖ Recentrar"), btn -> {
             this.scrollX = 0;
             this.scrollY = 0;
         }).bounds(10, 10, 80, 20).build());
 
-        // Botón cerrar
+        // Botón para cerrar la pantalla
         this.addRenderableWidget(Button.builder(Component.literal("Cerrar"), btn -> this.onClose())
                 .bounds(this.width - 70, 10, 60, 20).build());
     }
 
     @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double dragX, double dragY) {
-        // Clic izquierdo o derecho para arrastrar el lienzo
+        // Clic izquierdo o derecho sostenido para arrastrar el lienzo
         if (button == 0 || button == 1) {
             this.scrollX += dragX;
             this.scrollY += dragY;
@@ -97,26 +98,33 @@ public class SkillTreeScreen extends Screen {
         Player player = Minecraft.getInstance().player;
         PlayerSkills skills = (player != null) ? player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).orElse(null) : null;
 
-        // 2. Dibujar líneas de conexión entre nodos
+        // 2. Dibujar líneas de conexión entre nodos (Soporte Multi-Padre y Ramas)
         for (SkillNode node : SkillRegistry.getAll()) {
             int startX = centerX + node.getPosX();
             int startY = centerY + node.getPosY();
 
-            int targetX = centerX;
-            int targetY = centerY;
+            if (node.getParentIds().isEmpty()) {
+                // Nodo raíz de rama: se conecta a la brújula central ("Inicia tu aventura")
+                boolean isUnlocked = (skills != null && skills.isNodeUnlocked(node.getId()));
+                int lineColor = isUnlocked ? 0xFFDAA520 : 0xFF444455;
+                drawLine(guiGraphics, centerX, centerY, startX, startY, lineColor);
+            } else {
+                // Nodos intermedios o híbridos: se conectan a cada uno de sus padres
+                for (ResourceLocation parentId : node.getParentIds()) {
+                    SkillNode parent = SkillRegistry.get(parentId);
+                    if (parent != null) {
+                        int targetX = centerX + parent.getPosX();
+                        int targetY = centerY + parent.getPosY();
 
-            if (node.getParentId() != null) {
-                SkillNode parent = SkillRegistry.get(node.getParentId());
-                if (parent != null) {
-                    targetX = centerX + parent.getPosX();
-                    targetY = centerY + parent.getPosY();
+                        boolean isUnlocked = (skills != null
+                                && skills.isNodeUnlocked(node.getId())
+                                && skills.isNodeUnlocked(parent.getId()));
+                        int lineColor = isUnlocked ? 0xFFDAA520 : 0xFF444455;
+
+                        drawLine(guiGraphics, targetX, targetY, startX, startY, lineColor);
+                    }
                 }
             }
-
-            boolean isUnlocked = (skills != null && skills.isNodeUnlocked(node.getId()));
-            int lineColor = isUnlocked ? 0xFFDAA520 : 0xFF444455;
-
-            drawLine(guiGraphics, targetX, targetY, startX, startY, lineColor);
         }
 
         // 3. Dibujar nodo central de inicio ("Inicia tu aventura")
@@ -144,7 +152,7 @@ public class SkillTreeScreen extends Screen {
             guiGraphics.fill(nx - 1, ny - 1, nx + NODE_SIZE + 1, ny + NODE_SIZE + 1, borderColor);
             guiGraphics.fill(nx, ny, nx + NODE_SIZE, ny + NODE_SIZE, isUnlocked ? 0xFF1A1A24 : 0xFF0A0A0E);
 
-            // Icono
+            // Icono del ítem
             guiGraphics.renderItem(node.getIcon(), nx + (NODE_SIZE - 16) / 2, ny + (NODE_SIZE - 16) / 2);
 
             // Detección de cursor encima
@@ -158,7 +166,7 @@ public class SkillTreeScreen extends Screen {
         // Título de navegación
         guiGraphics.drawString(this.font, "§6§lÁRBOL DE HABILIDADES §7(Arrastra con el ratón para navegar)", 100, 16, 0xFFFFFF);
 
-        // 5. Tooltip flotante
+        // 5. Tooltip flotante al pasar el cursor sobre un nodo
         if (hoveredNode != null && skills != null) {
             List<Component> tooltip = new ArrayList<>();
             tooltip.add(Component.literal("§l" + hoveredNode.getDisplayName().getString()));

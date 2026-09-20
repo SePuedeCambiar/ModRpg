@@ -3,6 +3,7 @@ package com.example.modrpg.skills.nodes.hybrid;
 import com.example.modrpg.skills.PlayerSkills;
 import com.example.modrpg.skills.data.SkillNode;
 import com.example.modrpg.skills.data.SkillRegistry;
+import com.example.modrpg.skills.nodes.melee.UltracutSkill;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
@@ -30,12 +31,11 @@ public class CombinedUltimateSkill extends SkillNode {
 
     @Override
     public void onLivingHurt(ServerPlayer player, LivingHurtEvent event, PlayerSkills skills) {
-        // Se activa en sinergia cuando el Ultracorte impacta a un objetivo
-        if (event.getSource().getDirectEntity() == player && skills.isNodeUnlocked(SkillRegistry.NODE_ULTRACUT)) {
+        // Solo detona si el golpe actual es el Ultracorte Final
+        if (event.getSource().getDirectEntity() == player && player.getTags().contains(UltracutSkill.ULTRACUT_HIT_TAG)) {
             LivingEntity target = event.getEntity();
             ServerLevel level = (ServerLevel) player.level();
 
-            // Bombardeo de partículas celestiales
             for (int i = 0; i < 20; i++) {
                 double offsetX = (Math.random() - 0.5) * 8.0;
                 double offsetZ = (Math.random() - 0.5) * 8.0;

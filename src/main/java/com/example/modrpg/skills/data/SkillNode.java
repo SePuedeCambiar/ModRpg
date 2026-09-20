@@ -34,7 +34,7 @@ public abstract class SkillNode {
     // Propiedades visuales para la GUI
     private int posX = 0;
     private int posY = 0;
-    private ResourceLocation parentId = null;
+    private final List<ResourceLocation> parentIds = new ArrayList<>();
     private ItemStack icon = new ItemStack(Items.BOOK);
 
     public SkillNode(ResourceLocation id, ResourceLocation branchId, Component displayName, Component description, NodeType type, int defaultCooldownTicks) {
@@ -51,11 +51,23 @@ public abstract class SkillNode {
         return this;
     }
 
-    public SkillNode setVisuals(int x, int y, ResourceLocation parentId, ItemStack icon) {
+    // Configuración visual con soporte multi-padre
+    public SkillNode setVisuals(int x, int y, ItemStack icon, ResourceLocation... parents) {
         this.posX = x;
         this.posY = y;
-        this.parentId = parentId;
         this.icon = icon;
+        for (ResourceLocation parent : parents) {
+            if (parent != null && !this.parentIds.contains(parent)) {
+                this.parentIds.add(parent);
+            }
+        }
+        return this;
+    }
+
+    public SkillNode addParent(ResourceLocation parentId) {
+        if (parentId != null && !this.parentIds.contains(parentId)) {
+            this.parentIds.add(parentId);
+        }
         return this;
     }
 
@@ -69,7 +81,7 @@ public abstract class SkillNode {
 
     public int getPosX() { return posX; }
     public int getPosY() { return posY; }
-    public ResourceLocation getParentId() { return parentId; }
+    public List<ResourceLocation> getParentIds() { return Collections.unmodifiableList(parentIds); }
     public ItemStack getIcon() { return icon; }
 
     public boolean canUnlock(ServerPlayer player, PlayerSkills skills) {

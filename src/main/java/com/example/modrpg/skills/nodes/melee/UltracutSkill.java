@@ -17,8 +17,8 @@ import java.util.List;
 
 public class UltracutSkill extends SkillNode {
 
-    // 10 minutos exactos = 10 * 60 * 20 = 12,000 ticks
     public static final int COOLDOWN_10_MINUTES = 12000;
+    public static final String ULTRACUT_HIT_TAG = "modrpg_ultracut_executing";
 
     public UltracutSkill() {
         super(
@@ -27,20 +27,26 @@ public class UltracutSkill extends SkillNode {
                 Component.literal("Definitiva CaC: Ultracorte Final"),
                 Component.literal("Carga la espada definitiva. El próximo ataque físico inflige un 500% de daño catastrófico con detonación en área (10 min CD)."),
                 NodeType.ULTIMATE,
-                COOLDOWN_10_MINUTES
+                0 // El cooldown no se aplica al cargar, sino al impactar
         );
     }
 
     @Override
     public void onExecuteActive(ServerPlayer player, PlayerSkills skills) {
+        if (skills.hasCooldown(this.getId())) {
+            int seg = (skills.getCooldown(this.getId()) / 20);
+            player.displayClientMessage(Component.literal("§c⏳ Ultracorte en recarga: " + (seg / 60) + "m " + (seg % 60) + "s"), true);
+            return;
+        }
+
         if (skills.isUltimateCharged()) {
-            player.displayClientMessage(Component.literal("§e⚡ ¡Tu espada ya ruge con el Ultracorte! Golpea a tu objetivo."), true);
+            player.displayClientMessage(Component.literal("§e⚡ ¡Tu espada ya está cargada con el Ultracorte!"), true);
             return;
         }
 
         skills.setUltimateCharged(true);
         player.level().playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.ENDER_DRAGON_GROWL, SoundSource.PLAYERS, 1.0f, 0.8f);
-        player.displayClientMessage(Component.literal("§4§l⚡ ¡ULTRACORTE FINAL ACTIVADO! §c(Próximo impacto: +500% de Daño Catastrófico)"), true);
+        player.displayClientMessage(Component.literal("§4§l⚡ ¡ULTRACORTE FINAL CARGADO! §c(Próximo impacto: +500% de daño)"), true);
     }
 
     @Override
@@ -48,7 +54,6 @@ public class UltracutSkill extends SkillNode {
         if (!skills.isUltimateCharged() || event.getSource().getDirectEntity() != player) return;
 
         skills.setUltimateCharged(false);
-        // Aplica el cooldown de 10 minutos
         skills.setCooldown(this.getId(), COOLDOWN_10_MINUTES);
 
         float damageFinal = event.getAmount() * 5.0f;
@@ -57,30 +62,34 @@ public class UltracutSkill extends SkillNode {
         LivingEntity mainTarget = event.getEntity();
         ServerLevel level = (ServerLevel) player.level();
 
-        // Explosión de partículas gigantes
-        level.sendParticles(ParticleTypes.EXPLOSION_EMITTER, mainTarget.getX(), mainTarget.getY() + 1.0, mainTarget.getZ(), 1, 0, 0, 0, 0);
-        level.sendParticles(ParticleTypes.FLASH, mainTarget.getX(), mainTarget.getY() + 1.0, mainTarget.getZ(), 3, 0.5, 0.5, 0.5, 0);
-        level.sendParticles(ParticleTypes.CRIT, mainTarget.getX(), mainTarget.getY() + 1.0, mainTarget.getZ(), 100, 1.0, 1.0, 1.0, 0.5);
+        try {
+            player.addTag(ULTRACUT_HIT_TAG); // Bandera para habilidades en sinergia
 
-        level.playSound(null, mainTarget.getX(), mainTarget.getY(), mainTarget.getZ(), SoundEvents.GENERIC_EXPLODE, SoundSource.PLAYERS, 1.5f, 0.9f);
-        level.playSound(null, mainTarget.getX(), mainTarget.getY(), mainTarget.getZ(), SoundEvents.LIGHTNING_BOLT_THUNDER, SoundSource.PLAYERS, 1.2f, 1.0f);
+            level.sendParticles(ParticleTypes.EXPLOSION_EMITTER, mainTarget.getX(), mainTarget.getY() + 1.0, mainTarget.getZ(), 1, 0, 0, 0, 0);
+            level.sendParticles(ParticleTypes.FLASH, mainTarget.getX(), mainTarget.getY() + 1.0, mainTarget.getZ(), 3, 0.5, 0.5, 0.5, 0);
+            level.sendParticles(ParticleTypes.CRIT, mainTarget.getX(), mainTarget.getY() + 1.0, mainTarget.getZ(), 100, 1.0, 1.0, 1.0, 0.5);
 
-        // Daño colateral a enemigos cercanos (radio de 6 bloques)
-        AABB box = mainTarget.getBoundingBox().inflate(6.0);
-        List<LivingEntity> nearby = level.getEntitiesOfClass(
-                LivingEntity.class,
-                box,
-                e -> e != player && e != mainTarget && e.isAlive() && !e.isAlliedTo(player)
-        );
+            level.playSound(null, mainTarget.getX(), mainTarget.getY(), mainTarget.getZ(), SoundEvents.GENERIC_EXPLODE, SoundSource.PLAYERS, 1.5f, 0.9f);
+            level.playSound(null, mainTarget.getX(), mainTarget.getY(), mainTarget.getZ(), SoundEvents.LIGHTNING_BOLT_THUNDER, SoundSource.PLAYERS, 1.2f, 1.0f);
 
-        for (LivingEntity splashTarget : nearby) {
-            splashTarget.hurt(player.damageSources().playerAttack(player), damageFinal * 0.5f);
-            splashTarget.knockback(1.5, -(splashTarget.getX() - mainTarget.getX()), -(splashTarget.getZ() - mainTarget.getZ()));
+            AABB box = mainTarget.getBoundingBox().inflate(6.0);
+            List<LivingEntity> nearby = level.getEntitiesOfClass(
+                    LivingEntity.class,
+                    box,
+                    e -> e != player && e != mainTarget && e.isAlive() && !e.isAlliedTo(player)
+            );
+
+            for (LivingEntity splashTarget : nearby) {
+                splashTarget.hurt(player.damageSources().playerAttack(player), damageFinal * 0.5f);
+                splashTarget.knockback(1.5, -(splashTarget.getX() - mainTarget.getX()), -(splashTarget.getZ() - mainTarget.getZ()));
+            }
+
+            player.displayClientMessage(
+                    Component.literal("§4§l💥 ¡ULTRACORTE FINAL DESATADO! §fDaño infligido: §e" + String.format("%.1f", damageFinal)),
+                    true
+            );
+        } finally {
+            player.removeTag(ULTRACUT_HIT_TAG);
         }
-
-        player.displayClientMessage(
-                Component.literal("§4§l💥 ¡ULTRACORTE FINAL DESATADO! §fDaño al jefe: §e" + String.format("%.1f", damageFinal) + " §7(Enemigos cercanos alcanzados: " + nearby.size() + ")"),
-                true
-        );
     }
 }
