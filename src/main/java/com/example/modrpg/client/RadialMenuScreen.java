@@ -21,13 +21,34 @@ public class RadialMenuScreen extends Screen {
     private static final int RADIUS = 75;
     private static final int BADGE_SIZE = 28;
 
+    // Cacheamos la lista aquí para no recrearla en cada fotograma
+    private final List<SkillNode> activeSkills = new ArrayList<>();
+
     public RadialMenuScreen() {
         super(Component.literal("Rueda de Habilidades RPG"));
     }
 
     @Override
+    protected void init() {
+        super.init();
+        activeSkills.clear();
+
+        Player player = Minecraft.getInstance().player;
+        if (player == null) return;
+
+        PlayerSkills skills = player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).orElse(null);
+        if (skills == null) return;
+
+        for (ResourceLocation id : skills.getUnlockedNodes()) {
+            SkillNode node = SkillRegistry.get(id);
+            if (node != null && (node.getType() == SkillNode.NodeType.ACTIVE_ABILITY || node.getType() == SkillNode.NodeType.ULTIMATE)) {
+                activeSkills.add(node);
+            }
+        }
+    }
+
+    @Override
     public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
-        // Fondo semitransparente con efecto de enfoque
         guiGraphics.fill(0, 0, this.width, this.height, 0x990A0A10);
 
         int centerX = this.width / 2;
@@ -39,15 +60,6 @@ public class RadialMenuScreen extends Screen {
         PlayerSkills skills = player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).orElse(null);
         if (skills == null) return;
 
-        // Filtrar habilidades activas que el jugador tiene desbloqueadas
-        List<SkillNode> activeSkills = new ArrayList<>();
-        for (ResourceLocation id : skills.getUnlockedNodes()) {
-            SkillNode node = SkillRegistry.get(id);
-            if (node != null && (node.getType() == SkillNode.NodeType.ACTIVE_ABILITY || node.getType() == SkillNode.NodeType.ULTIMATE)) {
-                activeSkills.add(node);
-            }
-        }
-
         if (activeSkills.isEmpty()) {
             guiGraphics.drawCenteredString(this.font, "§cNo tienes habilidades activas desbloqueadas.", centerX, centerY, 0xFFFFFF);
             super.render(guiGraphics, mouseX, mouseY, partialTick);
@@ -57,11 +69,9 @@ public class RadialMenuScreen extends Screen {
         SkillNode hoveredSkill = null;
         int total = activeSkills.size();
 
-        // Dibujar cada habilidad en la rueda circular
         for (int i = 0; i < total; i++) {
             SkillNode node = activeSkills.get(i);
 
-            // Ángulo en radianes (repartido uniformemente en 360 grados)
             double angle = (2 * Math.PI / total) * i - (Math.PI / 2);
             int nodeX = (int) (centerX + Math.cos(angle) * RADIUS) - (BADGE_SIZE / 2);
             int nodeY = (int) (centerY + Math.sin(angle) * RADIUS) - (BADGE_SIZE / 2);
@@ -74,20 +84,15 @@ public class RadialMenuScreen extends Screen {
             boolean onCooldown = skills.hasCooldown(node.getId());
             int borderColor = onCooldown ? 0xFFAA2222 : (isHovered ? 0xFFFFFFFF : 0xFFDAA520);
 
-            // Borde y fondo del slot
             guiGraphics.fill(nodeX - 1, nodeY - 1, nodeX + BADGE_SIZE + 1, nodeY + BADGE_SIZE + 1, borderColor);
             guiGraphics.fill(nodeX, nodeY, nodeX + BADGE_SIZE, nodeY + BADGE_SIZE, isHovered ? 0xFF2A2A38 : 0xFF14141E);
-
-            // Icono
             guiGraphics.renderItem(node.getIcon(), nodeX + (BADGE_SIZE - 16) / 2, nodeY + (BADGE_SIZE - 16) / 2);
 
-            // Si está en cooldown, mostrar máscara roja
             if (onCooldown) {
                 guiGraphics.fill(nodeX, nodeY, nodeX + BADGE_SIZE, nodeY + BADGE_SIZE, 0x88AA0000);
             }
         }
 
-        // Centro: información de la habilidad apuntada
         if (hoveredSkill != null) {
             guiGraphics.drawCenteredString(this.font, "§6§l" + hoveredSkill.getDisplayName().getString(), centerX, centerY - 14, 0xFFFFFF);
             if (skills.hasCooldown(hoveredSkill.getId())) {
@@ -105,36 +110,21 @@ public class RadialMenuScreen extends Screen {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (button == 0) { // Clic izquierdo
+        if (button == 0 && !activeSkills.isEmpty()) {
             int centerX = this.width / 2;
             int centerY = this.height / 2;
+            int total = activeSkills.size();
 
-            Player player = Minecraft.getInstance().player;
-            if (player != null) {
-                PlayerSkills skills = player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).orElse(null);
-                if (skills != null) {
-                    List<SkillNode> activeSkills = new ArrayList<>();
-                    for (ResourceLocation id : skills.getUnlockedNodes()) {
-                        SkillNode node = SkillRegistry.get(id);
-                        if (node != null && (node.getType() == SkillNode.NodeType.ACTIVE_ABILITY || node.getType() == SkillNode.NodeType.ULTIMATE)) {
-                            activeSkills.add(node);
-                        }
-                    }
+            for (int i = 0; i < total; i++) {
+                SkillNode node = activeSkills.get(i);
+                double angle = (2 * Math.PI / total) * i - (Math.PI / 2);
+                int nodeX = (int) (centerX + Math.cos(angle) * RADIUS) - (BADGE_SIZE / 2);
+                int nodeY = (int) (centerY + Math.sin(angle) * RADIUS) - (BADGE_SIZE / 2);
 
-                    int total = activeSkills.size();
-                    for (int i = 0; i < total; i++) {
-                        SkillNode node = activeSkills.get(i);
-                        double angle = (2 * Math.PI / total) * i - (Math.PI / 2);
-                        int nodeX = (int) (centerX + Math.cos(angle) * RADIUS) - (BADGE_SIZE / 2);
-                        int nodeY = (int) (centerY + Math.sin(angle) * RADIUS) - (BADGE_SIZE / 2);
-
-                        if (mouseX >= nodeX && mouseX <= nodeX + BADGE_SIZE && mouseY >= nodeY && mouseY <= nodeY + BADGE_SIZE) {
-                            // Ejecutar la habilidad seleccionada
-                            ModMessages.sendToServer(new PacketCastSkill(node.getId()));
-                            this.onClose();
-                            return true;
-                        }
-                    }
+                if (mouseX >= nodeX && mouseX <= nodeX + BADGE_SIZE && mouseY >= nodeY && mouseY <= nodeY + BADGE_SIZE) {
+                    ModMessages.sendToServer(new PacketCastSkill(node.getId()));
+                    this.onClose();
+                    return true;
                 }
             }
         }

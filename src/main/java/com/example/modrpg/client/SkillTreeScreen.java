@@ -7,6 +7,7 @@ import com.example.modrpg.skills.PlayerSkillsProvider;
 import com.example.modrpg.skills.data.SkillNode;
 import com.example.modrpg.skills.data.SkillRegistry;
 import com.example.modrpg.skills.data.SkillRequirement;
+import com.mojang.math.Axis;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
@@ -35,20 +36,19 @@ public class SkillTreeScreen extends Screen {
     @Override
     protected void init() {
         super.init();
-        // Botón para recentrar la cámara al origen
+        // Botón para recentrar cámara
         this.addRenderableWidget(Button.builder(Component.literal("⌖ Recentrar"), btn -> {
             this.scrollX = 0;
             this.scrollY = 0;
         }).bounds(10, 10, 80, 20).build());
 
-        // Botón para cerrar la pantalla
+        // Botón cerrar
         this.addRenderableWidget(Button.builder(Component.literal("Cerrar"), btn -> this.onClose())
                 .bounds(this.width - 70, 10, 60, 20).build());
     }
 
     @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double dragX, double dragY) {
-        // Clic izquierdo o derecho sostenido para arrastrar el lienzo
         if (button == 0 || button == 1) {
             this.scrollX += dragX;
             this.scrollY += dragY;
@@ -98,18 +98,16 @@ public class SkillTreeScreen extends Screen {
         Player player = Minecraft.getInstance().player;
         PlayerSkills skills = (player != null) ? player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).orElse(null) : null;
 
-        // 2. Dibujar líneas de conexión entre nodos (Soporte Multi-Padre y Ramas)
+        // 2. Dibujar líneas de conexión entre nodos (Soporte Multi-Padre Optimizado)
         for (SkillNode node : SkillRegistry.getAll()) {
             int startX = centerX + node.getPosX();
             int startY = centerY + node.getPosY();
 
             if (node.getParentIds().isEmpty()) {
-                // Nodo raíz de rama: se conecta a la brújula central ("Inicia tu aventura")
+                // Conexión directa a la raíz ("Inicia tu aventura")
                 boolean isUnlocked = (skills != null && skills.isNodeUnlocked(node.getId()));
-                int lineColor = isUnlocked ? 0xFFDAA520 : 0xFF444455;
-                drawLine(guiGraphics, centerX, centerY, startX, startY, lineColor);
+                drawLine(guiGraphics, centerX, centerY, startX, startY, isUnlocked ? 0xFFDAA520 : 0xFF444455);
             } else {
-                // Nodos intermedios o híbridos: se conectan a cada uno de sus padres
                 for (ResourceLocation parentId : node.getParentIds()) {
                     SkillNode parent = SkillRegistry.get(parentId);
                     if (parent != null) {
@@ -152,7 +150,7 @@ public class SkillTreeScreen extends Screen {
             guiGraphics.fill(nx - 1, ny - 1, nx + NODE_SIZE + 1, ny + NODE_SIZE + 1, borderColor);
             guiGraphics.fill(nx, ny, nx + NODE_SIZE, ny + NODE_SIZE, isUnlocked ? 0xFF1A1A24 : 0xFF0A0A0E);
 
-            // Icono del ítem
+            // Icono
             guiGraphics.renderItem(node.getIcon(), nx + (NODE_SIZE - 16) / 2, ny + (NODE_SIZE - 16) / 2);
 
             // Detección de cursor encima
@@ -166,7 +164,7 @@ public class SkillTreeScreen extends Screen {
         // Título de navegación
         guiGraphics.drawString(this.font, "§6§lÁRBOL DE HABILIDADES §7(Arrastra con el ratón para navegar)", 100, 16, 0xFFFFFF);
 
-        // 5. Tooltip flotante al pasar el cursor sobre un nodo
+        // 5. Tooltip flotante
         if (hoveredNode != null && skills != null) {
             List<Component> tooltip = new ArrayList<>();
             tooltip.add(Component.literal("§l" + hoveredNode.getDisplayName().getString()));
@@ -197,29 +195,22 @@ public class SkillTreeScreen extends Screen {
         }
     }
 
+    // Optimización: 1 sola llamada gráfica por línea usando rotación geométrica
     private void drawLine(GuiGraphics guiGraphics, int x1, int y1, int x2, int y2, int color) {
-        int dx = Math.abs(x2 - x1);
-        int dy = Math.abs(y2 - y1);
-        int sx = x1 < x2 ? 1 : -1;
-        int sy = y1 < y2 ? 1 : -1;
-        int err = dx - dy;
+        int dx = x2 - x1;
+        int dy = y2 - y1;
+        float distance = (float) Math.hypot(dx, dy);
+        float angle = (float) Math.toDegrees(Math.atan2(dy, dx));
 
-        int currX = x1;
-        int currY = y1;
+        var pose = guiGraphics.pose();
+        pose.pushPose();
+        pose.translate(x1, y1, 0);
+        pose.mulPose(Axis.ZP.rotationDegrees(angle));
 
-        while (true) {
-            guiGraphics.fill(currX - 1, currY - 1, currX + 1, currY + 1, color);
-            if (currX == x2 && currY == y2) break;
-            int e2 = 2 * err;
-            if (e2 > -dy) {
-                err -= dy;
-                currX += sx;
-            }
-            if (e2 < dx) {
-                err += dx;
-                currY += sy;
-            }
-        }
+        // Dibuja la línea completa como un quad orientado
+        guiGraphics.fill(0, -1, (int) distance, 1, color);
+
+        pose.popPose();
     }
 
     @Override
