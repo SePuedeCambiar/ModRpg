@@ -70,4 +70,5 @@ class PlayerSkillsTest {
         skills.addPractice(counterKills, 15);
         assertEquals(25, skills.getPractice(counterKills));
     }
+
 }

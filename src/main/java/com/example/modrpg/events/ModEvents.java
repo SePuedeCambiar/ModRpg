@@ -24,6 +24,7 @@ import net.minecraftforge.event.AttachCapabilitiesEvent;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.EntityJoinLevelEvent;
+import net.minecraftforge.event.entity.living.LivingAttackEvent;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.event.entity.living.LivingFallEvent;
 import net.minecraftforge.event.entity.living.LivingHurtEvent;
@@ -76,7 +77,7 @@ public class ModEvents {
         RpgCommands.register(event.getDispatcher());
     }
 
-    // 1. Tick de Cooldowns en Servidor y Cliente (Solución al Bug 1)
+    // 1. Tick de Cooldowns e I-Frames (Descuenta en Servidor y Cliente)
     @SubscribeEvent
     public static void onPlayerTick(TickEvent.PlayerTickEvent event) {
         if (event.phase == TickEvent.Phase.END) {
@@ -84,11 +85,29 @@ public class ModEvents {
                 if (!skills.getAllCooldowns().isEmpty()) {
                     skills.tickCooldowns();
                 }
+                skills.tickIFrames(); // Descuenta los frames de invulnerabilidad del Dash
             });
         }
     }
 
-    // 2. Anulación del Daño de Caída del Salto de Viento (Solución al Bug 2)
+    // 2. Inmunidad Absoluta durante el Dash (Solución al Bug 3)
+    @SubscribeEvent
+    public static void onLivingAttack(LivingAttackEvent event) {
+        if (event.getEntity() instanceof ServerPlayer player) {
+            player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
+                if (skills.hasDashIFrames()) {
+                    // Cancela daño, empuje, retroceso y daño a la armadura
+                    event.setCanceled(true);
+
+                    ServerLevel level = (ServerLevel) player.level();
+                    level.sendParticles(ParticleTypes.CRIT, player.getX(), player.getY() + 1.0, player.getZ(), 6, 0.2, 0.2, 0.2, 0.1);
+                    level.playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.SHIELD_BLOCK, SoundSource.PLAYERS, 0.5f, 2.0f);
+                }
+            });
+        }
+    }
+
+    // 3. Anulación del Daño de Caída del Salto de Viento (Solución al Bug 2)
     @SubscribeEvent
     public static void onLivingFall(LivingFallEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
@@ -103,7 +122,7 @@ public class ModEvents {
         }
     }
 
-    // 3. Registro de Bajas y Práctica
+    // 4. Registro de Bajas y Práctica
     @SubscribeEvent
     public static void onLivingDeath(LivingDeathEvent event) {
         if (event.getSource().getEntity() instanceof ServerPlayer player) {
@@ -119,7 +138,7 @@ public class ModEvents {
         }
     }
 
-    // 4. Modificación de Proyectiles al Disparar
+    // 5. Modificación de Proyectiles al Disparar
     @SubscribeEvent
     public static void onArrowSpawn(EntityJoinLevelEvent event) {
         if (!event.getLevel().isClientSide() && event.getEntity() instanceof AbstractArrow arrow) {
@@ -136,7 +155,7 @@ public class ModEvents {
         }
     }
 
-    // 5. Cálculo y Mitigación de Daño
+    // 6. Cálculo y Mitigación de Daño
     @SubscribeEvent
     public static void onLivingHurt(LivingHurtEvent event) {
         Entity attacker = event.getSource().getEntity();

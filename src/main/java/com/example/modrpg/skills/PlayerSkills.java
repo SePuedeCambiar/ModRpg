@@ -19,8 +19,11 @@ public class PlayerSkills {
     private final Map<ResourceLocation, Integer> practiceCounters = new HashMap<>();
     private final Map<ResourceLocation, Integer> cooldowns = new HashMap<>();
 
-    // Estado para el golpe cargado
+    // Estado para el golpe cargado de la definitiva
     private boolean ultimateCharged = false;
+
+    // Contador de ticks de invulnerabilidad (i-frames del Dash)
+    private int dashIFrameTicks = 0;
 
     public PlayerSkills() {}
 
@@ -121,8 +124,26 @@ public class PlayerSkills {
         });
     }
 
+    // =========================================================================
+    // ESTADOS ESPECIALES DE COMBATE (I-Frames y Definitiva)
+    // =========================================================================
+
     public boolean isUltimateCharged() { return ultimateCharged; }
     public void setUltimateCharged(boolean charged) { this.ultimateCharged = charged; }
+
+    public boolean hasDashIFrames() {
+        return dashIFrameTicks > 0;
+    }
+
+    public void setDashIFrames(int ticks) {
+        this.dashIFrameTicks = Math.max(0, ticks);
+    }
+
+    public void tickIFrames() {
+        if (dashIFrameTicks > 0) {
+            dashIFrameTicks--;
+        }
+    }
 
     // =========================================================================
     // SINCRONIZACIÓN Y CLONACIÓN (Seguro y Atómico)
@@ -166,6 +187,7 @@ public class PlayerSkills {
         this.cooldowns.putAll(source.cooldowns);
 
         this.ultimateCharged = source.ultimateCharged;
+        this.dashIFrameTicks = 0; // Se reinicia al morir
     }
 
     // =========================================================================
@@ -234,6 +256,7 @@ public class PlayerSkills {
         }
 
         this.ultimateCharged = nbt.getBoolean("UltimateCharged");
+        this.dashIFrameTicks = 0;
     }
 
     // =========================================================================
