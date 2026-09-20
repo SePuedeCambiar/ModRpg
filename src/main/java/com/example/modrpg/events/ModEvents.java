@@ -51,6 +51,7 @@ public class ModEvents {
         event.getOriginal().invalidateCaps();
 
         if (event.getEntity() instanceof ServerPlayer serverPlayer) {
+            // Reaplicar atributos y sincronizar tras reaparecer/morir
             SkillAttributes.applyModifiers(serverPlayer);
             SkillEconomy.syncSkills(serverPlayer);
         }
@@ -72,16 +73,21 @@ public class ModEvents {
 
     @SubscribeEvent
     public static void onPlayerTick(TickEvent.PlayerTickEvent event) {
-        if (event.phase == TickEvent.Phase.END && !event.player.level().isClientSide() && event.player instanceof ServerPlayer serverPlayer) {
-            serverPlayer.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
-                // 1. Enfriamientos activos
+        if (event.phase == TickEvent.Phase.END) {
+            event.player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
+                // 1. Descontar enfriamientos en CLIENTE Y SERVIDOR para que el HUD baje segundo a segundo
                 if (!skills.getAllCooldowns().isEmpty()) {
                     skills.tickCooldowns();
                 }
 
-                // 2. Práctica de Movilidad: acumular metros al esprintar (1 punto cada segundo / 20 ticks)
-                if (serverPlayer.isSprinting() && serverPlayer.tickCount % 20 == 0) {
-                    skills.addPractice(SkillRegistry.COUNTER_DISTANCE_RUN, 1);
+                // 2. Lógica exclusiva de persistencia en el SERVIDOR
+                if (!event.player.level().isClientSide() && event.player instanceof ServerPlayer serverPlayer) {
+                    // Práctica de Movilidad: acumular metros al esprintar (1 punto por cada segundo esprintando)
+                    if (serverPlayer.isSprinting() && serverPlayer.tickCount % 20 == 0) {
+                        skills.addPractice(SkillRegistry.COUNTER_DISTANCE_RUN, 1);
+                        SkillEconomy.checkMilestones(serverPlayer, skills);
+                        SkillEconomy.syncSkills(serverPlayer);
+                    }
                 }
             });
         }
@@ -95,7 +101,7 @@ public class ModEvents {
                 if (event.getSource().getDirectEntity() == player) {
                     skills.addPractice(SkillRegistry.COUNTER_MELEE_KILLS, 1);
                 }
-                // Si fue con proyectil (flecha, tridente, etc.)
+                // Si fue con proyectil (flecha, ballesta, etc.)
                 else if (event.getSource().getDirectEntity() instanceof AbstractArrow) {
                     skills.addPractice(SkillRegistry.COUNTER_RANGED_KILLS, 1);
                 }

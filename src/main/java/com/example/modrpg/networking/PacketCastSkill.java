@@ -1,6 +1,7 @@
 package com.example.modrpg.networking;
 
 import com.example.modrpg.skills.PlayerSkillsProvider;
+import com.example.modrpg.skills.SkillEconomy; // <-- CAMBIO 1: Import añadido
 import com.example.modrpg.skills.data.SkillNode;
 import com.example.modrpg.skills.data.SkillRegistry;
 import net.minecraft.network.FriendlyByteBuf;
@@ -69,6 +70,9 @@ public class PacketCastSkill {
                 }
 
                 node.onExecuteActive(player, skills);
+
+                // CAMBIO 2: Sincronizar inmediatamente el nuevo cooldown hacia el cliente
+                SkillEconomy.syncSkills(player);
             });
         });
         ctx.get().setPacketHandled(true);
