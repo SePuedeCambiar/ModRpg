@@ -1,849 +1,195 @@
-Documentación Técnica: ModRpg (Minecraft 1.20.1 - Forge)
-1. Especificaciones del Entorno
-
-    Plataforma: Minecraft Java Edition
-
-    Versión de Minecraft: 1.20.1
-
-    Cargador de Mods: Minecraft Forge (v47.4.10+)
-
-    Toolchain / JDK: Java 17 LTS
-
-    Identificador de Mod (modid): modrpg
-
-    Mapeos: Official Mojang Mappings
-
-2. Arquitectura del Sistema
-
-El mod implementa una arquitectura orientada a datos y desacoplada mediante eventos, dividida en cinco subsistemas principales:
-code Code
-
-┌────────────────────────────────────────────────────────┐
-│                   Cliente (GUI / Input)                │
-│   SkillTreeScreen | RadialMenuScreen | CooldownOverlay │
-└───────────────────────────┬────────────────────────────┘
-                            │ Packets (Forge SimpleChannel)
-┌───────────────────────────▼────────────────────────────┐
-│                    Capa de Red                         │
-│   PacketCastSkill | PacketSyncSkills | PacketUnlockNode│
-└───────────────────────────┬────────────────────────────┘
-                            │ Invocación
-┌───────────────────────────▼────────────────────────────┐
-│              Dominio Lógico (Servidor)                 │
-│   PlayerSkills (Capability) ───► SkillRegistry         │
-│   SkillEconomy ◄───────────────► SkillNode             │
-└───────────────────────────┬────────────────────────────┘
-                            │ Modificadores
-┌───────────────────────────▼────────────────────────────┐
-│                   Event Pipeline                       │
-│   ModEvents (LivingHurt, LivingDeath, EntityJoinLevel) │
-└────────────────────────────────────────────────────────┘
-
-3. Modelo de Datos y Persistencia
-3.1. Capability: PlayerSkills
-
-La persistencia de estado por jugador se implementa mediante net.minecraftforge.common.capabilities.Capability vinculada a entidades de tipo Player.
-Estructuras de Datos Internas:
-
-    branchLevels (Map<ResourceLocation, Integer>): Nivel acumulado por rama de habilidad. Clave: ID de rama. Valor: Rango
-
-            
-    [0,100]
-    [0,100]
-
-          
-
-    .
-
-    unlockedNodes (Set<ResourceLocation>): Conjunto de nodos de habilidad adquiridos.
-
-    practiceCounters (Map<ResourceLocation, Integer>): Acumuladores de métricas de práctica (ej. bajas con armas específicas).
-
-    cooldowns (Map<ResourceLocation, Integer>): Tiempos de recarga restantes medidos en ticks (
-
-            
-    1 s=20 ticks
-    1 s=20 ticks
-
-          
-
-    ).
-
-    ultimateCharged (boolean): Bandera transitoria de estado para consumición en el siguiente impacto físico.
-
-Serialización NBT (PlayerSkillsProvider):
-
-    BranchLevels (TAG_Compound): Pares clave-valor String (ID)
-
-            
-    →
-    →
-
-          
-
-    int (Nivel).
-
-    UnlockedNodes (TAG_List de TAG_String): Identificadores serializados de nodos adquiridos.
-
-    PracticeCounters (TAG_Compound): Pares clave-valor String (ID)
-
-            
-    →
-    →
-
-          
-
-    int (Bajas).
-
-    Cooldowns (TAG_Compound): Pares clave-valor String (ID)
-
-            
-    →
-    →
-
-          
-
-    int (Ticks restantes).
-
-    UltimateCharged (TAG_Byte): Booleano de estado.
-
-El ciclo de vida de la entidad gestiona la pérdida de contexto mediante PlayerEvent.Clone, transfiriendo el NBT completo con el método copyFrom() antes de invalidar las capacidades de la entidad original.
-4. Estructura de Habilidades (skills.data)
-4.1. Clase Base: SkillNode
-
-Unidad fundamental polimórfica que encapsula la lógica de ejecución y los criterios de adquisición.
-
-    Tipos de Nodo (NodeType):
-
-        PASSIVE_STAT: Modificador pasivo permanente de atributos o comportamiento.
-
-        ACTIVE_ABILITY: Habilidad accionada por interacción del usuario sujeta a enfriamiento.
-
-        HYBRID_SYNERGY: Nodo de convergencia que combina requerimientos de múltiples ramas.
-
-        ULTIMATE: Habilidad terminal con alto impacto y cooldown extendido.
-
-    Puntos de Inserción (Hooks de Ejecución):
-
-        canUnlock(ServerPlayer, PlayerSkills): Evaluación booleana de requisitos.
-
-        tryUnlock(ServerPlayer, PlayerSkills): Ejecución de costes y mutación de estado.
-
-        onExecuteActive(ServerPlayer, PlayerSkills): Callback invocado por activación explícita.
-
-        onLivingHurt(ServerPlayer, LivingHurtEvent, PlayerSkills): Callback invocado en el canal de cálculo de daño.
-
-        onArrowShoot(ServerPlayer, EntityJoinLevelEvent, AbstractArrow, PlayerSkills): Callback invocado al instanciarse proyectiles asociados al jugador.
-
-4.2. Motor de Requisitos: SkillRequirement
-
-Interfaz funcional encargada de validar y mutar precondiciones de desbloqueo:
-
-    minPlayerXpLevel(int): Valida player.experienceLevel >= minXp.
-
-    consumePlayerXpLevels(int): Valida y descuenta niveles mediante player.giveExperienceLevels(-xpCost).
-
-    branchLevel(ResourceLocation, int): Valida el nivel de una rama contra un umbral.
-
-    practice(ResourceLocation, int, String): Valida el acumulador de bajas específico.
-
-    prerequisiteNode(ResourceLocation, String): Verifica la presencia del nodo padre en unlockedNodes.
-
-5. Economía y Curvas de Escalado
-5.1. Coste de Niveles de Experiencia
-
-El coste en niveles de XP para ascender de nivel en cualquier rama se rige por la función:
-
-        
-C(L)=max⁡(1,round(1.0+(L99)1.6×99.0))
-C(L)=max(1,round(1.0+(99L​)1.6×99.0))
-
-      
-
-Donde
-
-        
-L∈[0,99]
-L∈[0,99]
-
-      
-
-representa el nivel actual de la rama.
-5.2. Requisitos de Práctica
-
-El umbral de bajas requeridas para el nivel
-
-        
-L+1
-L+1
-
-      
-
-se define linealmente:
-
-        
-K(L+1)=(L+1)×3
-K(L+1)=(L+1)×3
-
-      
-
-5.3. Escalado de Atributos Físicos (SkillAttributes)
-
-    Daño Cuerpo a Cuerpo (Attributes.ATTACK_DAMAGE):
-    Modificador transitivo aditivo (AttributeModifier.Operation.ADDITION):
-
-            
-    Dbonus(Lmelee)=baseAttack×(Lmelee×0.02)
-    Dbonus​(Lmelee​)=baseAttack×(Lmelee​×0.02)
-
-          
-
-
-    Garantiza un incremento estricto del
-
-            
-    +2%
-    +2%
-
-          
-
-    del daño base por nivel (
-
-            
-    +200%
-    +200%
-
-          
-
-    a nivel 100).
-
-    Velocidad de Movimiento (Attributes.MOVEMENT_SPEED):
-
-            
-    Vbonus(Lmobility)=(Lmobility100)1.5×0.08
-    Vbonus​(Lmobility​)=(100Lmobility​​)1.5×0.08
-
-          
-
-6. Registro de Nodos del Sistema (SkillRegistry)
-Identificador del Nodo	Rama	Tipo	Requisitos de Adquisición	Cooldown	Comportamiento / Efecto
-modrpg:melee_double_attack	melee	ACTIVE_ABILITY	Rama Melee
-
-        
-≥4
-≥4
-
-      
-
-	0 ticks	Si la barra de ataque
-
-        
-≥92%
-≥92%
-
-      
-
-, genera un impacto secundario recursivo por el
-
-        
-80%
-80%
-
-      
-
-del daño original.
-modrpg:melee_ether_dual_sword	melee	ACTIVE_ABILITY	Melee
-
-        
-≥5
-≥5
-
-      
-
-, Magic
-
-        
-≥6
-≥6
-
-      
-
-	0 ticks	Los ataques con espada generan un segundo corte mágico en offhand por el
-
-        
-75%
-75%
-
-      
-
-del daño base (DamageSource.magic()).
-modrpg:melee_heavy_tornado	melee	ACTIVE_ABILITY	Melee
-
-        
-≥10
-≥10
-
-      
-
-, Bajas Melee
-
-        
-≥20
-≥20
-
-      
-
-	160 ticks (8s)	Barrido radial de
-
-        
-5.5 m
-5.5 m
-
-      
-
-. Aplica
-
-        
-(1.5×base)×(1+0.02⋅Lmelee)
-(1.5×base)×(1+0.02⋅Lmelee​)
-
-      
-
-de daño físico con vector de empuje y elevación
-
-        
-+0.45 Y
-+0.45 Y
-
-      
-
-.
-modrpg:melee_megacut	melee	ACTIVE_ABILITY	Melee
-
-        
-≥50
-≥50
-
-      
-
-, Bajas Melee
-
-        
-≥100
-≥100
-
-      
-
-	400 ticks (20s)	Raycast frontal perforante de
-
-        
-12 m
-12 m
-
-      
-
-. Inflige
-
-        
-3.0×dan˜o base
-3.0×dan˜o base
-
-      
-
-a todas las entidades interceptadas.
-modrpg:melee_ultracut	melee	ULTIMATE	Melee
-
-        
-≥100
-≥100
-
-      
-
-, Bajas Melee
-
-        
-≥250
-≥250
-
-      
-
-	12000 ticks (10m)	Carga el siguiente ataque físico para infligir
-
-        
-+500%
-+500%
-
-      
-
-de daño crítico con detonación en área de
-
-        
-6.0 m
-6.0 m
-
-      
-
-de radio.
-modrpg:ranged_tailwind	ranged	PASSIVE_STAT	Rama Ranged
-
-        
-≥5
-≥5
-
-      
-
-	0 ticks	Aplica escala vectorial
-
-        
-×1.8
-×1.8
-
-      
-
-a la velocidad inicial de proyectiles AbstractArrow.
-modrpg:ranged_crossbow_artillery	ranged	ACTIVE_ABILITY	Ranged
-
-        
-≥20
-≥20
-
-      
-
-, Bajas Ranged
-
-        
-≥30
-≥30
-
-      
-
-	0 ticks	Cohetes disparados con ballesta reciben
-
-        
-+15.0+(Lranged×0.5)
-+15.0+(Lranged​×0.5)
-
-      
-
-de daño plano y partículas sónicas.
-modrpg:ranged_hypersonic	ranged	ACTIVE_ABILITY	Rama Ranged
-
-        
-≥50
-≥50
-
-      
-
-	0 ticks	Al disparar agachado: flecha sin gravedad, velocidad
-
-        
-×1.5
-×1.5
-
-      
-
-y perforación de 5 objetivos.
-modrpg:hybrid_hunter	melee	HYBRID_SYNERGY	Melee
-
-        
-≥25
-≥25
-
-      
-
-, Ranged
-
-        
-≥25
-≥25
-
-      
-
-	0 ticks	Flechas aplican etiqueta modrpg_hunter_mark. El impacto melee subsiguiente consume la marca y multiplica el daño por
-
-        
-×2.5
-×2.5
-
-      
-
-.
-modrpg:hybrid_arrow_propulsion	melee	HYBRID_SYNERGY	Melee
-
-        
-≥35
-≥35
-
-      
-
-, Ranged
-
-        
-≥30
-≥30
-
-      
-
-	60 ticks (3s)	Disparar flechas con pitch
-
-        
->55∘
->55∘
-
-      
-
-propulsa al jugador (vector
-
-        
-Y=+1.35
-Y=+1.35
-
-      
-
-) y aplica caída lenta.
-modrpg:hybrid_sword_quiver	melee	HYBRID_SYNERGY	Melee
-
-        
-≥70
-≥70
-
-      
-
-, Ranged
-
-        
-≥50
-≥50
-
-      
-
-	0 ticks	Proyectiles a distancia suman al impacto un bonus de daño plano equivalente a
-
-        
-1.5×dan˜o CaC
-1.5×dan˜o CaC
-
-      
-
-.
-modrpg:hybrid_combined_ultimate	melee	ULTIMATE	Melee
-
-        
-≥100
-≥100
-
-      
-
-, Ranged
-
-        
-≥70
-≥70
-
-      
-
-	0 ticks	La ejecución del Ultracorte invoca un bombardeo secundario en área (
-
-        
-7 m
-7 m
-
-      
-
-) que inflige el
-
-        
-40%
-40%
-
-      
-
-del daño en forma de magia.
-modrpg:magic_fireball	magic	ACTIVE_ABILITY	Rama Magic
-
-        
-≥3
-≥3
-
-      
-
-	100 ticks (5s)	Emite un cono frontal de
-
-        
-10 m
-10 m
-
-      
-
-. Aplica
-
-        
-8.0+(Lmagic×0.4)
-8.0+(Lmagic​×0.4)
-
-      
-
-de daño mágico e ignición.
-modrpg:magic_healing_aura	magic	ACTIVE_ABILITY	Rama Magic
-
-        
-≥6
-≥6
-
-      
-
-	240 ticks (12s)	Regenera
-
-        
-6.0+(Lmagic×0.2)
-6.0+(Lmagic​×0.2)
-
-      
-
-de vida base, remueve efectos negativos y aplica Regeneración II.
-modrpg:magic_necrotic_drain	magic	PASSIVE_STAT	Rama Magic
-
-        
-≥15
-≥15
-
-      
-
-	0 ticks	Restaura salud al jugador equivalente al
-
-        
-15%
-15%
-
-      
-
-del daño infligido a cualquier entidad viva.
-modrpg:mobility_light_step	mobility	PASSIVE_STAT	Rama Mobility
-
-        
-≥2
-≥2
-
-      
-
-	0 ticks	Sobrescribe dinámicamente player.maxUpStep = 1.25F, permitiendo subir bloques completos sin saltar.
-modrpg:mobility_dash	mobility	ACTIVE_ABILITY	Rama Mobility
-
-        
-≥10
-≥10
-
-      
-
-	60 ticks (3s)	Aplica impulso vectorial horizontal
-
-        
-×1.6
-×1.6
-
-      
-
-y 20 ticks de invulnerabilidad estricta (invulnerableTime = 20).
-modrpg:mobility_air_jump	mobility	ACTIVE_ABILITY	Rama Mobility
-
-        
-≥20
-≥20
-
-      
-
-	80 ticks (4s)	Aplica aceleración vertical pura (
-
-        
-Y=+0.95
-Y=+0.95
-
-      
-
-) en el aire.
-modrpg:defense_stone_skin	defense	PASSIVE_STAT	Rama Defense
-
-        
-≥3
-≥3
-
-      
-
-	0 ticks	Intercepta daño recibido y reduce el valor final un
-
-        
-20%
-20%
-
-      
-
-(amount * 0.80F).
-modrpg:defense_iron_fortress	defense	ACTIVE_ABILITY	Rama Defense
-
-        
-≥20
-≥20
-
-      
-
-	600 ticks (30s)	Aplica Resistencia III y Absorción II durante 200 ticks (10s).
-7. Protocolo de Red (modrpg:main)
-
-Canal bidireccional registrado mediante NetworkRegistry.newSimpleChannel bajo la versión de protocolo "3".
-7.1. Tabla de Paquetes
-ID	Clase	Dirección	Carga Útil (Payload)	Lógica de Procesamiento
-0	PacketCastSkill	C
-
-        
-→
-→
-
-      
-
-S	ResourceLocation (ID)	Valida que el nodo exista, esté desbloqueado y sin cooldown activo. Aplica enfriamiento e invoca node.onExecuteActive().
-1	PacketSyncSkillsToClient	S
-
-        
-→
-→
-
-      
-
-C	Maps serializados: branchLevels, unlockedNodes, practiceCounters, cooldowns, boolean ultimateCharged	Sobrescribe las estructuras de datos de la capability en el hilo del cliente (Minecraft.getInstance().player).
-2	PacketUpgradeSkill	C
-
-        
-→
-→
-
-      
-
-S	String (nombre de rama)	Invoca SkillEconomy.upgradeBranch() en el contexto del servidor.
-3	PacketUnlockNode	C
-
-        
-→
-→
-
-      
-
-S	ResourceLocation (ID)	Evalúa node.tryUnlock(). Descuenta costes y sincroniza con el cliente si la transacción es válida.
-8. Capa de Presentación e Interfaz de Usuario
-8.1. Lienzo Navegable (SkillTreeScreen)
-
-    Mapeo de Coordenadas: Transformación afín 2D basada en desplazamiento acumulado:
-
-            
-    Xrender=Xpantalla/2+scrollX+Xnodo
-    Xrender​=Xpantalla​/2+scrollX+Xnodo​
-
-          
-
-
-            
-    Yrender=Ypantalla/2+scrollY+Ynodo
-    Yrender​=Ypantalla​/2+scrollY+Ynodo​
-
-          
-
-    Grafo de Nodos: Algoritmo diferencial de línea entera (Bresenham) implementado en drawLine() para conectar parentId
-
-            
-    →
-    →
-
-          
-
-    id.
-
-    Criterio Cromático de Aristas:
-
-        Desbloqueado: 0xFFDAA520 (Dorado)
-
-        Bloqueado: 0xFF444455 (Gris apagado)
-
-8.2. Menú de Selección Radial (RadialMenuScreen)
-
-Distribución geométrica polar equidistante centrada en ventana:
-
-        
-θi=(2πN)⋅i−π2
-θi​=(N2π​)⋅i−2π​
-
-      
-
-        
-Xi=Xcentro+cos⁡(θi)⋅R,Yi=Ycentro+sin⁡(θi)⋅R
-Xi​=Xcentro​+cos(θi​)⋅R,Yi​=Ycentro​+sin(θi​)⋅R
-
-      
-
-Donde
-
-        
-R=75 px
-R=75 px
-
-      
-
-y
-
-        
-N
-N
-
-      
-
-es el recuento total de habilidades activas desbloqueadas.
-8.3. Capa de Superposición (SkillCooldownOverlay)
-
-Hook registrado en el pipeline de renderizado de Forge (RegisterGuiOverlaysEvent) posicionado de forma relativa sobre VanillaGuiOverlay.HOTBAR. Itera las entradas de cooldowns mayores a cero y dibuja la máscara oscurecida junto al remanente en segundos (
-
-        
-t/20
-t/20
-
-      
-
-).
-9. Interfaz de Comandos (RpgCommands)
-
-Todos los subcomandos están anidados bajo el comando raíz /rpg.
-
-    /rpg stats:
-
-        Permiso requerido: Nivel 0 (Todos los jugadores).
-
-        Salida: Imprime en el log de chat del emisor los niveles de cada rama, contadores de bajas y la lista completa de habilidades desbloqueadas.
-
-    /rpg upgrade <branch>:
-
-        Permiso requerido: Nivel 0.
-
-        Argumentos: <branch> (String, autocompletado con ramas registradas).
-
-        Acción: Evalúa y transacciona el ascenso de nivel en modo supervivencia.
-
-    /rpg addlevel <branch> <amount>:
-
-        Permiso requerido: Nivel 2 (Operadores / Modo creativo).
-
-        Argumentos: <branch> (String), <amount> (Integer, rango
-
-                
-        [1,100]
-        [1,100]
-
-              
-
-        ).
-
-        Acción: Incrementa artificialmente el nivel sin descontar experiencia ni exigir bajas.
-
-    /rpg unlock <skill>:
-
-        Permiso requerido: Nivel 2.
-
-        Argumentos: <skill> (String, autocompletado con nodos de SkillRegistry).
-
-        Acción: Otorga el nodo al jugador eludiendo todos los prerrequisitos del árbol.
+- **Persistencia (`PlayerSkillsProvider`):** Adjunta la `Capability<PlayerSkills>` a cada `Player`. Guarda niveles de rama, nodos aprendidos, práctica, cooldowns, loadout, maná y estados transitorios en formato NBT estructurado.
+- **Clonación tras Muerte (`PlayerEvent.Clone`):** El estado se transfiere limpiamente sin pérdida de progresión cuando el jugador reaparece.
+
+---
+
+## 🎮 Controles y Atajos de Teclado
+
+| Tecla | Función | Descripción |
+| :---: | :--- | :--- |
+| **`K`** | **Abrir Árbol de Habilidades** | Abre la pantalla interactiva de progresión con navegación 2D. |
+| **`Z`** | **Rueda Radial de Habilidades** | Abre la rueda de acceso rápido para castear habilidades equipadas. |
+| **`G`** | **Embestida Evasiva (Dash)** | Impulso horizontal con 15 ticks (0.75s) de inmunidad (*i-frames*). |
+| **`R`** | **Ultracorte Final** | Carga la habilidad definitiva CaC (+500% de daño y detonación). |
+| **`V`** | **Torbellino Ultrapesado** | Ataque giratorio masivo de 5.5m con elevación vertical. |
+| **`B`** | **Megacorte** | Onda cortante de 12 bloques que atraviesa enemigos. |
+| **`X`** | **Piroclasto Elemental** | Ráfaga cónica de fuego arcano frontal. |
+| **`C`** | **Aura de Sanación** | Cura vida, limpia efectos negativos y otorga Regeneración. |
+
+*Nota: Los controles pueden reasignarse en el menú de Configuración de Controles de Minecraft (Categoría `ModRpg`).*
+
+---
+
+## 📐 Economía, Curvas y Fórmulas Matemáticas
+
+### 1. Coste de Niveles de Experiencia (Vanilla XP)
+El coste en niveles de XP para subir una rama desde su nivel actual $L \in [0, 99]$ hasta $L+1$ se calcula con una curva polinómica exponencial suave al inicio y exigente al final:
+
+$$C(L) = \max\left(1, \text{round}\left(1.0 + \left(\frac{L}{99}\right)^{1.6} \times 99.0\right)\right)$$
+
+- **Nivel 0:** Cuesta **1 nivel** de XP.
+- **Nivel 10:** Cuesta **3 a 5 niveles** de XP.
+- **Nivel 50:** Cuesta **~36 niveles** de XP.
+- **Nivel 99 $\to$ 100:** Cuesta **100 niveles** exactos de XP.
+
+### 2. Práctica de Combate Requerida
+Para ascender al nivel $L+1$ de cualquier rama, se requiere acumular puntos de práctica universales (bajas, daño mitigado, distancia):
+
+$$P(L+1) = (L+1) \times 3$$
+
+| Siguiente Nivel ($L+1$) | Práctica Requerida |
+| :---: | :---: |
+| 1 | 3 puntos |
+| 10 | 30 puntos |
+| 50 | 150 puntos |
+| 100 | 300 puntos |
+
+### 3. Escalado de Atributos Físicos
+- **Daño Cuerpo a Cuerpo (`Attributes.ATTACK_DAMAGE`):** Escalado lineal estricto de $+2\%$ por nivel sobre el daño base del jugador. A nivel 100 se obtiene $+200\%$ adicional ($3\times$ el daño total).
+  $$D_{\text{bonus}}(L_{\text{melee}}) = \text{baseAttack} \times (L_{\text{melee}} \times 0.02)$$
+- **Velocidad de Movimiento (`Attributes.MOVEMENT_SPEED`):**
+  $$V_{\text{bonus}}(L_{\text{mobility}}) = \left(\frac{L_{\text{mobility}}}{100}\right)^{1.5} \times 0.08$$
+- **Mitigación Defensiva Pasiva:** Factor multiplicador aplicado al daño recibido (reduce hasta un 40% a nivel 100):
+  $$\text{Factor}(L_{\text{defense}}) = \max\left(0.60, 1.0 - \left(\frac{L_{\text{defense}}}{100}\right)^{1.4} \times 0.40\right)$$
+- **Altura de Paso (`ForgeMod.STEP_HEIGHT_ADDITION`):** Acumulación aditiva de $+0.5$ bloques por cada nodo desbloqueado (`LightStep`, `StepBoostMobility20`, `StepBoostMelee3`), permitiendo subir hasta **+1.5 bloques adicionales** de forma continua.
+
+---
+
+## ⚡ Sistema de Maná
+
+- **Capacidad Máxima:** Base de 100 puntos, incrementada en $+2$ por cada nivel en la rama de Magia (hasta **300 de maná** a nivel 100).
+  $$\text{MaxMana} = 100.0 + (L_{\text{magic}} \times 2.0)$$
+- **Regeneración:** Base de $2.0 \text{ maná/s}$, potenciada en $+5\%$ por cada nivel en Magia:
+  $$\text{Regen}(L_{\text{magic}}) = 2.0 \times (1.0 + L_{\text{magic}} \times 0.05)$$
+  - *Nivel 0:* $2.0 \text{ maná/s}$
+  - *Nivel 10:* $3.0 \text{ maná/s}$ ($+50\%$)
+  - *Nivel 100:* $12.0 \text{ maná/s}$ ($+500\%$)
+
+---
+
+## 📖 Catálogo Completo de Habilidades
+
+### 1. Cuerpo a Cuerpo (Melee)
+| ID | Tipo | Coste / CD | Requisitos | Efecto |
+| :--- | :---: | :---: | :--- | :--- |
+| `melee_step_boost_3` | Pasiva | — | Melee Lvl 3 | **Zancada Marcial:** $+0.5$ a la altura de paso. |
+| `melee_double_attack` | Activa | 0 ticks | Melee Lvl 4 | **Doble Ataque:** Si la barra de ataque está al $\ge 92\%$, asesta un segundo impacto consecutivo al 80% de daño. |
+| `melee_unarmed_style` | Pasiva | — | Melee Lvl 4 | **Estilo Desarmado:** $+10\%$ de daño a puño limpio, $-5\%$ si usas armas. |
+| `melee_weapon_mastery` | Pasiva | — | Melee Lvl 8 | **Dominio de Armas:** $+15\%$ daño con armas CaC (15% prob. de desgaste extra). |
+| `melee_leg_trip` | Activa | 160t (8s) | Melee Lvl 6 | **Golpe Bajo:** Barre las piernas de los enemigos infligiendo daño y lentitud extrema. |
+| `melee_wide_sweep` | Activa | 100t (5s) | Melee Lvl 12 | **Barrido Ciclónico:** Golpe horizontal de 180° que corta a todos los enemigos al frente. |
+| `melee_ether_dual_sword`| Activa | 0 ticks | Melee Lvl 5, Magia Lvl 6 | **Doble Espada Espectral:** Impacto mágico adicional con espada offhand (75% daño). |
+| `melee_heavy_tornado` | Activa | 160t (8s) | Melee Lvl 10, 20 bajas | **Torbellino Ultrapesado:** Giro de 5.5m que levanta a los enemigos con $+50\%$ de daño. |
+| `melee_megacut` | Activa | 400t (20s) | Melee Lvl 50, 100 bajas | **Megacorte:** Onda lineal penetrante de 12m que causa $3\times$ daño base. |
+| `melee_ultracut` | Definitiva | 12000t (10m) | Melee Lvl 100, 250 bajas | **Ultracorte Final:** Carga el arma; el próximo golpe inflige $+500\%$ de daño y explosión de 6m. |
+
+### 2. Arquería (Ranged)
+| ID | Tipo | Coste / CD | Requisitos | Efecto |
+| :--- | :---: | :---: | :--- | :--- |
+| `ranged_tailwind` | Pasiva | — | Ranged Lvl 5 | **Viento a Favor:** Proyectiles viajan $+80\%$ más rápido y con mayor precisión. |
+| `ranged_rapid_fire` | Activa | 300t (15s) | Ranged Lvl 12 | **Disparo Rápido:** Ráfaga inmediata de 6 flechas a velocidad máxima sin tensar arco. |
+| `ranged_homing_arrow` | Activa | 200t (10s) | Ranged Lvl 16 | **Tiro Teledirigido:** Dispara flecha buscadora (penalización $+10$s de CD si no hay objetivos en 25m). |
+| `ranged_crossbow_artillery`| Activa | — | Ranged Lvl 20, 30 bajas | **Artillería de Ballesta:** Cohetes causan explosión sónica con aliento de dragón y daño extra. |
+| `ranged_hypersonic` | Activa | — | Ranged Lvl 50 | **Tiro Hipersónico:** Al disparar agachado, la flecha viaja sin gravedad y perfora 5 objetivos. |
+
+### 3. Magia y Elementos (Magic)
+| ID | Tipo | Coste / CD | Requisitos | Efecto |
+| :--- | :---: | :---: | :--- | :--- |
+| `magic_fireball` | Activa | 20 Maná / 5s | Magia Lvl 3 | **Piroclasto Elemental:** Ráfaga cónica de fuego arcano perforante de 10m. |
+| `magic_healing_aura` | Activa | 35 Maná / 12s | Magia Lvl 6 | **Aura de Sanación:** Restaura salud, limpia veneno/wither/lentitud y otorga Regeneración. |
+| `magic_earth_tune` | Activa | 2 Pts Comida / 10s| Magia Lvl 8 | **Sintonía Terrenal:** Sobre tierra/roca/arena, consume hambre y regenera $+40$ maná. |
+| `magic_summon_zombies` | Activa | 45 Maná / 20s | Magia Lvl 10 | **Horda de Infantes:** Invoca 5 zombis infantes leales con cascos durante 20s. |
+| `magic_counter_attack` | Activa | 25 Maná / 12s | Magia Lvl 12 | **Contraataque:** Postura de 1.5s; al ser golpeado, anula el daño y ataca a 2 rivales. |
+| `magic_bee_swarm` | Activa | 35 Maná / 12s | Magia Lvl 12 | **Enjambre Hostil:** Envía 4 abejas furiosas al enemigo en el punto de mira durante 8s. |
+| `magic_necrotic_drain` | Pasiva | — | Magia Lvl 15 | **Drenaje Necrótico:** Cura al jugador un $15\%$ del daño infligido a cualquier enemigo. |
+| `magic_summon_skeletons`| Activa | 50 Maná / 25s | Magia Lvl 15 | **Arqueros Espectrales:** Invoca 2 esqueletos arqueros con casco durante 25s. |
+| `magic_summon_wolves` | Activa | 40 Maná / 18s | Magia Lvl 16 | **Manada Espectral:** Invoca 3 lobos domesticados leales durante 15s. |
+| `magic_lightning_chain` | Activa | 30 Maná / 7s | Magia Lvl 20 | **Chispa Encadenada:** Descarga eléctrica que salta entre hasta 3 enemigos cercanos. |
+
+### 4. Movilidad (Mobility)
+| ID | Tipo | Coste / CD | Requisitos | Efecto |
+| :--- | :---: | :---: | :--- | :--- |
+| `mobility_light_step` | Pasiva | — | Movilidad Lvl 2 | **Paso Ligero:** $+0.5$ bloques a la altura de paso. |
+| `mobility_dash` | Activa | 60t (3s) | Movilidad Lvl 10 | **Embestida Evasiva:** Impulso horizontal con 15 ticks (0.75s) de inmunidad absoluta. |
+| `mobility_flurry_of_strikes`| Activa | 240t (12s) | Movilidad Lvl 10 | **Salto Ronin:** Salto acrobático hacia adelante y otorga Velocidad III durante 10s. |
+| `mobility_impact_jump` | Activa | 300t (15s) | Movilidad Lvl 15 | **Ground Slam:** Gran salto vertical; al caer al suelo anula daño de caída y causa **150 daño en área**. |
+| `mobility_air_jump` | Activa | 80t (4s) | Movilidad Lvl 20 | **Salto de Viento:** Impulso aéreo vertical con anulación garantizada de daño de caída. |
+| `mobility_step_boost_20`| Pasiva | — | Movilidad Lvl 20 | **Mejora de Paso I:** $+0.5$ bloques adicionales a la altura de paso. |
+
+### 5. Defensa (Defense)
+| ID | Tipo | Coste / CD | Requisitos | Efecto |
+| :--- | :---: | :---: | :--- | :--- |
+| `defense_stone_skin` | Pasiva | — | Defensa Lvl 3 | **Piel de Piedra:** Reduce pasivamente todo el daño recibido en un $20\%$. |
+| `defense_push_and_wear` | Pasiva | — | Defensa Lvl 8 | **Empuje y Desgaste:** Tus ataques empujan violentamente y desgastan el arma enemiga. |
+| `defense_iron_strength` | Activa | 600t (30s) | Defensa Lvl 14 | **Fuerza de Hierro:** Durante 12s, no recibes daño y cada impacto recibido te cura $+2.5$ HP. |
+| `defense_iron_fortress` | Activa | 600t (30s) | Defensa Lvl 20 | **Fortaleza Inquebrantable:** Otorga Resistencia III y Absorción II durante 10s. |
+
+### 6. Sinergias Híbridas (Multiclase)
+| ID | Tipo | Coste / CD | Requisitos | Efecto |
+| :--- | :---: | :---: | :--- | :--- |
+| `hybrid_hunter` | Sinergia | — | Melee 25, Ranged 25 | **Cazador Híbrido:** Flechas marcan objetivos; rematarlos a corta distancia causa $+150\%$ daño de vacío. |
+| `hybrid_arrow_propulsion`| Sinergia | 60t (3s) | Melee 35, Ranged 30 | **Impulso de Flecha:** Disparar al suelo bajo tus pies (>55° pitch) te propulsa con caída lenta. |
+| `hybrid_sword_quiver` | Sinergia | — | Melee 70, Ranged 50 | **Carcaj de Espadas:** Las flechas suman un $+150\%$ de tu daño CaC al impacto. |
+| `hybrid_combined_ultimate`| Definitiva | — | Melee 100, Ranged 70 | **Lluvia de Espadas del Vacío:** El Ultracorte Final detona una lluvia de espadas mágicas (40% de daño en 7m). |
+
+---
+
+## 🐺 Sub-sistema de Esbirros e Invocaciones
+
+Gestionado mediante `MinionHelper`:
+1. **Identificación NBT y Tags:** A cada entidad se le asignan los tags `modrpg_minion`, `modrpg_owner_<UUID>` y el valor NBT `modrpg_lifespan`.
+2. **Ciclo de Vida Automático:** Un evento en `LivingEvent.LivingTickEvent` decrementa el lifespan de los esbirros; al expirar se desvanecen con efectos de partículas sin dejar drops residuales.
+3. **Redirección de Objetivos:** Al golpear a una criatura, el jugador reenvía automáticamente la agresión de todos sus esbirros cercanos hacia ese objetivo.
+4. **Fuego Amigo Cero:** Cancelación garantizada de daño mutuo entre jugador y esbirros, y entre esbirros que compartan el mismo dueño.
+
+---
+
+## 🖥 Interfaz de Usuario (HUD y GUI)
+
+- **Árbol de Habilidades (`SkillTreeScreen` - `K`):**
+  - **Zoom Dinámico:** Rueda del ratón para ampliar o alejar (0.55x a 1.8x).
+  - **Pan / Arrastre:** Clic sostenido con botón izquierdo, central o derecho.
+  - **Pestañas de Filtrado:** Filtra por ramas (Todas, CaC, Arquería, Magia, Movilidad, Defensa).
+  - **Interacciones:** Clic Izquierdo para desbloquear nodos; Clic Derecho para equipar/desequipar habilidades activas en el Loadout.
+- **Rueda Radial (`RadialMenuScreen` - `Z`):**
+  - Distribución polar automática según el número de habilidades en el loadout.
+  - Indicadores visuales en tiempo real: bordes dorados (listo), azules (falta maná), o rojos con contador numérico (en enfriamiento).
+- **Overlays del HUD:**
+  - **Barra de Maná (`ManaOverlay`):** Ubicada a la derecha, por encima de los muslitos de hambre. Muestra valor numérico y porcentaje animado.
+  - **Contadores de Enfriamiento (`SkillCooldownOverlay`):** Iconos semitransparentes sobre la hotbar con indicador de segundos restantes (`Xm Xs` o `Xs`).
+
+---
+
+## 📡 Protocolo de Red (Networking)
+
+Canal `modrpg:main` registrado en Forge con SimpleChannel (Versión `5`):
+
+| Packet | Flujo | Descripción |
+| :--- | :---: | :--- |
+| `PacketCastSkill` | C $\to$ S | Solicita la ejecución de una habilidad activa/definitiva validando cooldown y maná en servidor. |
+| `PacketSyncSkillsToClient` | S $\to$ C | Sincroniza ramas, nodos, contadores de práctica, cooldowns, maná y loadout. |
+| `PacketUpgradeSkill` | C $\to$ S | Envía la petición de compra y aumento de nivel en una rama específica. |
+| `PacketUnlockNode` | C $\to$ S | Transacciona el desbloqueo de un nodo específico del árbol en el servidor. |
+| `PacketSyncMana` | S $\to$ C | Paquete ligero de actualización de maná actual y máximo hacia el cliente. |
+| `PacketEquipSkill` | C $\to$ S | Solicita equipar o desequipar un nodo en el loadout radial del jugador. |
+
+---
+
+## ⌨️ Comandos del Servidor
+
+Todos los comandos se estructuran bajo el espacio de nombres `/rpg`:
+
+```bash
+# Consulta tus niveles de rama, estadísticas de práctica y habilidades aprendidas
+/rpg stats
+
+# Sube de nivel una rama consumiendo tu experiencia y práctica acumulada
+/rpg upgrade <melee|ranged|mobility|magic|defense>
+
+# [ADMIN] Otorga niveles directos a una rama sin consumir XP ni práctica (Permiso nivel 2)
+/rpg addlevel <rama> <cantidad>
+# Ejemplo: /rpg addlevel magic 10
+
+# [ADMIN] Desbloquea instantáneamente cualquier nodo del mod para pruebas (Permiso nivel 2)
+/rpg unlock <skill_id>
+# Ejemplo: /rpg unlock melee_ultracut
