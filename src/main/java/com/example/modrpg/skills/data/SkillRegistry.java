@@ -30,25 +30,25 @@ public class SkillRegistry {
     public static final ResourceLocation COUNTER_DAMAGE_BLOCKED= new ResourceLocation(ModRpg.MODID, "damage_blocked");
     public static final ResourceLocation COUNTER_DISTANCE_RUN  = new ResourceLocation(ModRpg.MODID, "distance_run");
 
-    // Nodos Melee
+    // Nodos de Melee
     public static final ResourceLocation NODE_DOUBLE_ATTACK     = new ResourceLocation(ModRpg.MODID, "melee_double_attack");
     public static final ResourceLocation NODE_ETHER_DUAL_SWORD  = new ResourceLocation(ModRpg.MODID, "melee_ether_dual_sword");
     public static final ResourceLocation NODE_HEAVY_TORNADO     = new ResourceLocation(ModRpg.MODID, "melee_heavy_tornado");
     public static final ResourceLocation NODE_MEGACUT           = new ResourceLocation(ModRpg.MODID, "melee_megacut");
     public static final ResourceLocation NODE_ULTRACUT          = new ResourceLocation(ModRpg.MODID, "melee_ultracut");
 
-    // Nodos Ranged
+    // Nodos de Ranged
     public static final ResourceLocation NODE_TAILWIND          = new ResourceLocation(ModRpg.MODID, "ranged_tailwind");
     public static final ResourceLocation NODE_CROSSBOW_ARTILLERY= new ResourceLocation(ModRpg.MODID, "ranged_crossbow_artillery");
     public static final ResourceLocation NODE_HYPERSONIC        = new ResourceLocation(ModRpg.MODID, "ranged_hypersonic");
 
-    // Nodos Híbridos
+    // Nodos de Sinergias Híbridas
     public static final ResourceLocation NODE_HYBRID_HUNTER     = new ResourceLocation(ModRpg.MODID, "hybrid_hunter");
     public static final ResourceLocation NODE_ARROW_PROPULSION  = new ResourceLocation(ModRpg.MODID, "hybrid_arrow_propulsion");
     public static final ResourceLocation NODE_SWORD_QUIVER      = new ResourceLocation(ModRpg.MODID, "hybrid_sword_quiver");
     public static final ResourceLocation NODE_COMBINED_ULTIMATE = new ResourceLocation(ModRpg.MODID, "hybrid_combined_ultimate");
 
-    // Nodos Magia y Elementos (Sprint 1)
+    // Nodos de Magia y Elementos
     public static final ResourceLocation NODE_FIREBALL          = new ResourceLocation(ModRpg.MODID, "magic_fireball");
     public static final ResourceLocation NODE_HEALING_AURA      = new ResourceLocation(ModRpg.MODID, "magic_healing_aura");
     public static final ResourceLocation NODE_NECROTIC_DRAIN    = new ResourceLocation(ModRpg.MODID, "magic_necrotic_drain");
@@ -56,12 +56,18 @@ public class SkillRegistry {
     public static final ResourceLocation NODE_COUNTER_ATTACK    = new ResourceLocation(ModRpg.MODID, "magic_counter_attack");
     public static final ResourceLocation NODE_LIGHTNING_CHAIN   = new ResourceLocation(ModRpg.MODID, "magic_lightning_chain");
 
-    // Nodos Movilidad
+    // Nodos de Necromancia e Invocaciones (Sprint 2)
+    public static final ResourceLocation NODE_SUMMON_ZOMBIES   = new ResourceLocation(ModRpg.MODID, "magic_summon_zombies");
+    public static final ResourceLocation NODE_SUMMON_SKELETONS = new ResourceLocation(ModRpg.MODID, "magic_summon_skeletons");
+    public static final ResourceLocation NODE_BEE_SWARM        = new ResourceLocation(ModRpg.MODID, "magic_bee_swarm");
+    public static final ResourceLocation NODE_SUMMON_WOLVES    = new ResourceLocation(ModRpg.MODID, "magic_summon_wolves");
+
+    // Nodos de Movilidad
     public static final ResourceLocation NODE_LIGHT_STEP        = new ResourceLocation(ModRpg.MODID, "mobility_light_step");
     public static final ResourceLocation NODE_DASH              = new ResourceLocation(ModRpg.MODID, "mobility_dash");
     public static final ResourceLocation NODE_AIR_JUMP          = new ResourceLocation(ModRpg.MODID, "mobility_air_jump");
 
-    // Nodos Defensa
+    // Nodos de Defensa
     public static final ResourceLocation NODE_STONE_SKIN        = new ResourceLocation(ModRpg.MODID, "defense_stone_skin");
     public static final ResourceLocation NODE_IRON_FORTRESS     = new ResourceLocation(ModRpg.MODID, "defense_iron_fortress");
 
@@ -96,14 +102,14 @@ public class SkillRegistry {
         BRANCHES.clear();
         NODES.clear();
 
-        // 1. REGISTRO DE RAMAS PRINCIPALES
+        // 1. REGISTRO DE RAMAS
         registerBranch(new SkillBranch(BRANCH_MELEE,    Component.literal("Cuerpo a Cuerpo"), 10, COUNTER_MELEE_KILLS));
         registerBranch(new SkillBranch(BRANCH_RANGED,   Component.literal("Arquería"),         5,  COUNTER_RANGED_KILLS));
         registerBranch(new SkillBranch(BRANCH_MAGIC,    Component.literal("Magia"),            5,  COUNTER_MAGIC_CASTS));
         registerBranch(new SkillBranch(BRANCH_DEFENSE,  Component.literal("Defensa"),          8,  COUNTER_DAMAGE_BLOCKED));
         registerBranch(new SkillBranch(BRANCH_MOBILITY, Component.literal("Movilidad"),       10, COUNTER_DISTANCE_RUN));
 
-        // 2. RAMA CUERPO A CUERPO (Arriba)
+        // 2. RAMA CUERPO A CUERPO
         register(new DoubleAttackSkill()
                 .addRequirement(SkillRequirement.branchLevel(BRANCH_MELEE, 4))
                 .setVisuals(0, -60, new ItemStack(Items.IRON_SWORD)));
@@ -128,7 +134,7 @@ public class SkillRegistry {
                 .addRequirement(SkillRequirement.practice(COUNTER_MELEE_KILLS, 250, "bajas CaC"))
                 .setVisuals(0, -280, new ItemStack(Items.NETHER_STAR), NODE_MEGACUT));
 
-        // 3. RAMA ARQUERÍA (Derecha)
+        // 3. RAMA ARQUERÍA
         register(new TailwindSkill()
                 .addRequirement(SkillRequirement.branchLevel(BRANCH_RANGED, 5))
                 .setVisuals(70, 0, new ItemStack(Items.BOW)));
@@ -163,7 +169,7 @@ public class SkillRegistry {
                 .addRequirement(SkillRequirement.branchLevel(BRANCH_RANGED, 70))
                 .setVisuals(90, -280, new ItemStack(Items.DRAGON_BREATH), NODE_ULTRACUT, NODE_SWORD_QUIVER));
 
-        // 5. RAMA MAGIA Y ELEMENTOS (Izquierda)
+        // 5. RAMA MAGIA Y ELEMENTOS
         register(new FireballSkill()
                 .addRequirement(SkillRequirement.branchLevel(BRANCH_MAGIC, 3))
                 .setVisuals(-80, 0, new ItemStack(Items.FIRE_CHARGE)));
@@ -188,7 +194,25 @@ public class SkillRegistry {
                 .addRequirement(SkillRequirement.branchLevel(BRANCH_MAGIC, 20))
                 .setVisuals(-120, 100, new ItemStack(Items.LIGHTNING_ROD), NODE_FIREBALL));
 
-        // 6. RAMA MOVILIDAD (Abajo)
+        // Sub-rama: Necromancia (Sprint 2)
+        register(new SummonZombiesSkill()
+                .addRequirement(SkillRequirement.branchLevel(BRANCH_MAGIC, 10))
+                .setVisuals(-240, -80, new ItemStack(Items.ZOMBIE_HEAD), NODE_FIREBALL));
+
+        register(new SummonSkeletonsSkill()
+                .addRequirement(SkillRequirement.branchLevel(BRANCH_MAGIC, 15))
+                .setVisuals(-300, -80, new ItemStack(Items.SKELETON_SKULL), NODE_SUMMON_ZOMBIES));
+
+        // Sub-rama: Invocaciones Naturales (Sprint 2)
+        register(new BeeSwarmSkill()
+                .addRequirement(SkillRequirement.branchLevel(BRANCH_MAGIC, 12))
+                .setVisuals(-240, 80, new ItemStack(Items.HONEYCOMB), NODE_FIREBALL));
+
+        register(new SummonWolvesSkill()
+                .addRequirement(SkillRequirement.branchLevel(BRANCH_MAGIC, 16))
+                .setVisuals(-300, 80, new ItemStack(Items.BONE), NODE_BEE_SWARM));
+
+        // 6. RAMA MOVILIDAD
         register(new LightStepSkill()
                 .addRequirement(SkillRequirement.branchLevel(BRANCH_MOBILITY, 2))
                 .setVisuals(0, 70, new ItemStack(Items.LEATHER_BOOTS)));
@@ -201,7 +225,7 @@ public class SkillRegistry {
                 .addRequirement(SkillRequirement.branchLevel(BRANCH_MOBILITY, 20))
                 .setVisuals(60, 140, new ItemStack(Items.PHANTOM_MEMBRANE), NODE_LIGHT_STEP));
 
-        // 7. RAMA DEFENSA (Abajo-Derecha)
+        // 7. RAMA DEFENSA
         register(new StoneSkinSkill()
                 .addRequirement(SkillRequirement.branchLevel(BRANCH_DEFENSE, 3))
                 .setVisuals(100, 90, new ItemStack(Items.SHIELD)));

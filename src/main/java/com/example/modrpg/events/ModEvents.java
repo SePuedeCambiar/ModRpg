@@ -11,6 +11,7 @@ import com.example.modrpg.skills.SkillEconomy;
 import com.example.modrpg.skills.SkillProgression;
 import com.example.modrpg.skills.data.SkillNode;
 import com.example.modrpg.skills.data.SkillRegistry;
+import com.example.modrpg.skills.nodes.magic.MinionHelper;
 import com.example.modrpg.skills.nodes.mobility.AirJumpSkill;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.network.chat.Component;
@@ -20,6 +21,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.AbstractArrow;
 import net.minecraftforge.event.AttachCapabilitiesEvent;
@@ -28,6 +30,7 @@ import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.EntityJoinLevelEvent;
 import net.minecraftforge.event.entity.living.LivingAttackEvent;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
+import net.minecraftforge.event.entity.living.LivingEvent;
 import net.minecraftforge.event.entity.living.LivingFallEvent;
 import net.minecraftforge.event.entity.living.LivingHurtEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
@@ -87,7 +90,7 @@ public class ModEvents {
                 if (!event.player.level().isClientSide()) {
                     skills.tickServerSide();
 
-                    // Sincronizar periódicamente cada segundo (20 ticks) al jugador
+                    // Sincroniza maná al cliente cada 1 segundo (20 ticks)
                     if (event.player.tickCount % 20 == 0 && event.player instanceof ServerPlayer serverPlayer) {
                         ModMessages.sendToPlayer(
                                 new PacketSyncMana(skills.getCurrentMana(), skills.getMaxMana()),
@@ -101,10 +104,29 @@ public class ModEvents {
         }
     }
 
-    // 2. Inmunidad Absoluta durante el Dash
+    // 2. Control de tiempo de vida (Lifespan) de los esbirros invocados
+    @SubscribeEvent
+    public static void onLivingTick(LivingEvent.LivingTickEvent event) {
+        LivingEntity entity = event.getEntity();
+        if (!entity.level().isClientSide() && entity.getTags().contains(MinionHelper.TAG_MINION)) {
+            MinionHelper.tickMinion(entity);
+        }
+    }
+
+    // 3. Prevención de Fuego Amigo (Jugador vs Minions) + I-Frames del Dash
     @SubscribeEvent
     public static void onLivingAttack(LivingAttackEvent event) {
-        if (event.getEntity() instanceof ServerPlayer player) {
+        Entity attacker = event.getSource().getEntity();
+        Entity victim = event.getEntity();
+
+        // Cancela el daño si atacante y víctima son aliados (mismo dueño o dueño y esbirro)
+        if (MinionHelper.areAllies(attacker, victim)) {
+            event.setCanceled(true);
+            return;
+        }
+
+        // Esquiva perfecta con I-Frames del Dash
+        if (victim instanceof ServerPlayer player) {
             player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
                 if (skills.hasDashIFrames()) {
                     event.setCanceled(true);
@@ -117,7 +139,7 @@ public class ModEvents {
         }
     }
 
-    // 3. Anulación del Daño de Caída del Salto de Viento
+    // 4. Anulación del Daño de Caída del Salto de Viento
     @SubscribeEvent
     public static void onLivingFall(LivingFallEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
@@ -132,7 +154,7 @@ public class ModEvents {
         }
     }
 
-    // 4. Registro de Bajas y Práctica
+    // 5. Registro de Bajas y Práctica
     @SubscribeEvent
     public static void onLivingDeath(LivingDeathEvent event) {
         if (event.getSource().getEntity() instanceof ServerPlayer player) {
@@ -148,7 +170,7 @@ public class ModEvents {
         }
     }
 
-    // 5. Modificación de Proyectiles al Disparar
+    // 6. Modificación de Proyectiles al Disparar
     @SubscribeEvent
     public static void onArrowSpawn(EntityJoinLevelEvent event) {
         if (!event.getLevel().isClientSide() && event.getEntity() instanceof AbstractArrow arrow) {
@@ -165,14 +187,16 @@ public class ModEvents {
         }
     }
 
-    // 6. Cálculo y Mitigación de Daño
+    // 7. Cálculo de Daño y Reenvío de Objetivos a los Esbirros
     @SubscribeEvent
     public static void onLivingHurt(LivingHurtEvent event) {
         Entity attacker = event.getSource().getEntity();
         Entity target = event.getEntity();
 
-        // Si el atacante es el jugador (daño saliente)
-        if (attacker instanceof ServerPlayer player) {
+        // Si el atacante es el jugador, ordenar a los esbirros que ataquen a ese objetivo
+        if (attacker instanceof ServerPlayer player && target instanceof LivingEntity livingTarget) {
+            MinionHelper.redirectMinionsTarget(player, livingTarget, 16.0);
+
             player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
                 if (event.getSource().getDirectEntity() instanceof AbstractArrow) {
                     int rangedLvl = skills.getBranchLevel(SkillRegistry.BRANCH_RANGED);
