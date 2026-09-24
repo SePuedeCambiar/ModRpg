@@ -10,7 +10,7 @@ import net.minecraftforge.network.simple.SimpleChannel;
 public class ModMessages {
 
     private static SimpleChannel INSTANCE;
-    private static final String PROTOCOL_VERSION = "4";
+    private static final String PROTOCOL_VERSION = "5";
     public static final ResourceLocation NETWORK_ID = new ResourceLocation(ModRpg.MODID, "main");
 
     public static void register() {
@@ -26,6 +26,7 @@ public class ModMessages {
         INSTANCE.registerMessage(2, PacketUpgradeSkill.class, PacketUpgradeSkill::encode, PacketUpgradeSkill::decode, PacketUpgradeSkill::handle);
         INSTANCE.registerMessage(3, PacketUnlockNode.class, PacketUnlockNode::encode, PacketUnlockNode::decode, PacketUnlockNode::handle);
         INSTANCE.registerMessage(4, PacketSyncMana.class, PacketSyncMana::encode, PacketSyncMana::decode, PacketSyncMana::handle);
+        INSTANCE.registerMessage(5, PacketEquipSkill.class, PacketEquipSkill::encode, PacketEquipSkill::decode, PacketEquipSkill::handle);
     }
 
     public static <MSG> void sendToServer(MSG message) {

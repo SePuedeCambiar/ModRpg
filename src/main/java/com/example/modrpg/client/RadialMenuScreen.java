@@ -38,7 +38,7 @@ public class RadialMenuScreen extends Screen {
         PlayerSkills skills = player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).orElse(null);
         if (skills == null) return;
 
-        // 1. Prioridad: Cargar las habilidades equipadas en el Loadout
+        // 1. Cargar las habilidades equipadas en el Loadout
         List<ResourceLocation> equipped = skills.getEquippedSkills();
         for (ResourceLocation id : equipped) {
             SkillNode node = SkillRegistry.get(id);
@@ -47,7 +47,7 @@ public class RadialMenuScreen extends Screen {
             }
         }
 
-        // 2. Fallback: Si el loadout está vacío, tomar las primeras 8 desbloqueadas
+        // 2. Fallback: Si no ha configurado el loadout, toma hasta 8 activas desbloqueadas
         if (activeSkills.isEmpty()) {
             for (ResourceLocation id : skills.getUnlockedNodes()) {
                 if (activeSkills.size() >= PlayerSkills.MAX_LOADOUT_SLOTS) break;
@@ -73,7 +73,8 @@ public class RadialMenuScreen extends Screen {
         if (skills == null) return;
 
         if (activeSkills.isEmpty()) {
-            guiGraphics.drawCenteredString(this.font, "§cNo tienes habilidades activas equipadas o desbloqueadas.", centerX, centerY, 0xFFFFFF);
+            guiGraphics.drawCenteredString(this.font, "§cNo tienes habilidades activas equipadas.", centerX, centerY - 6, 0xFFFFFF);
+            guiGraphics.drawCenteredString(this.font, "§7(Abre el árbol con [K] y equípalas con Clic Derecho)", centerX, centerY + 8, 0xAAAAAA);
             super.render(guiGraphics, mouseX, mouseY, partialTick);
             return;
         }
@@ -94,24 +95,46 @@ public class RadialMenuScreen extends Screen {
             }
 
             boolean onCooldown = skills.hasCooldown(node.getId());
-            int borderColor = onCooldown ? 0xFFAA2222 : (isHovered ? 0xFFFFFFFF : 0xFFDAA520);
+            boolean enoughMana = skills.getCurrentMana() >= node.getManaCost();
 
+            int borderColor;
+            if (onCooldown) {
+                borderColor = 0xFFAA2222; // Rojo si está en enfriamiento
+            } else if (!enoughMana) {
+                borderColor = 0xFF3366BB; // Azul oscuro si falta maná
+            } else {
+                borderColor = isHovered ? 0xFFFFFFFF : 0xFFDAA520; // Blanco si tiene cursor encima, dorado por defecto
+            }
+
+            // Fondo y marco del badge
             guiGraphics.fill(nodeX - 1, nodeY - 1, nodeX + BADGE_SIZE + 1, nodeY + BADGE_SIZE + 1, borderColor);
             guiGraphics.fill(nodeX, nodeY, nodeX + BADGE_SIZE, nodeY + BADGE_SIZE, isHovered ? 0xFF2A2A38 : 0xFF14141E);
             guiGraphics.renderItem(node.getIcon(), nodeX + (BADGE_SIZE - 16) / 2, nodeY + (BADGE_SIZE - 16) / 2);
 
+            // Capa sombreada si está en cooldown
             if (onCooldown) {
                 guiGraphics.fill(nodeX, nodeY, nodeX + BADGE_SIZE, nodeY + BADGE_SIZE, 0x88AA0000);
             }
         }
 
+        // Información en el centro de la rueda
         if (hoveredSkill != null) {
-            guiGraphics.drawCenteredString(this.font, "§6§l" + hoveredSkill.getDisplayName().getString(), centerX, centerY - 14, 0xFFFFFF);
-            if (skills.hasCooldown(hoveredSkill.getId())) {
+            guiGraphics.drawCenteredString(this.font, "§6§l" + hoveredSkill.getDisplayName().getString(), centerX, centerY - 18, 0xFFFFFF);
+
+            boolean onCooldown = skills.hasCooldown(hoveredSkill.getId());
+            boolean enoughMana = skills.getCurrentMana() >= hoveredSkill.getManaCost();
+
+            if (onCooldown) {
                 int seg = (skills.getCooldown(hoveredSkill.getId()) / 20) + 1;
-                guiGraphics.drawCenteredString(this.font, "§c⏳ Enfriamiento: " + seg + "s", centerX, centerY + 2, 0xFF8888);
+                guiGraphics.drawCenteredString(this.font, "§c⏳ Enfriamiento: " + seg + "s", centerX, centerY - 4, 0xFF8888);
+            } else if (!enoughMana) {
+                guiGraphics.drawCenteredString(this.font, "§9⚡ Falta Maná (Requiere: " + (int)hoveredSkill.getManaCost() + ")", centerX, centerY - 4, 0x88AAFF);
             } else {
-                guiGraphics.drawCenteredString(this.font, "§a✔ Listo para usar (Clic izquierdo)", centerX, centerY + 2, 0x88FF88);
+                guiGraphics.drawCenteredString(this.font, "§a✔ Listo para usar (Clic izquierdo)", centerX, centerY - 4, 0x88FF88);
+            }
+
+            if (hoveredSkill.getManaCost() > 0) {
+                guiGraphics.drawCenteredString(this.font, "§bCoste: " + (int)hoveredSkill.getManaCost() + " Maná", centerX, centerY + 8, 0xAAAAAA);
             }
         } else {
             guiGraphics.drawCenteredString(this.font, "§7Selecciona una habilidad (" + total + "/" + PlayerSkills.MAX_LOADOUT_SLOTS + ")", centerX, centerY - 6, 0xAAAAAA);
