@@ -36,6 +36,8 @@ import net.minecraftforge.event.entity.living.LivingHurtEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
+import com.example.modrpg.skills.nodes.defense.IronStrengthSkill;
+
 
 @Mod.EventBusSubscriber(modid = ModRpg.MODID)
 public class ModEvents {
@@ -114,23 +116,33 @@ public class ModEvents {
     }
 
     // 3. Prevención de Fuego Amigo (Jugador vs Minions) + I-Frames del Dash
+    // 3. Prevención de Fuego Amigo + I-Frames del Dash + Fuerza de Hierro (Curación)
     @SubscribeEvent
     public static void onLivingAttack(LivingAttackEvent event) {
         Entity attacker = event.getSource().getEntity();
         Entity victim = event.getEntity();
 
-        // Cancela el daño si atacante y víctima son aliados (mismo dueño o dueño y esbirro)
         if (MinionHelper.areAllies(attacker, victim)) {
             event.setCanceled(true);
             return;
         }
 
-        // Esquiva perfecta con I-Frames del Dash
         if (victim instanceof ServerPlayer player) {
+            // Fuerza de Hierro: anula daño y cura al jugador
+            if (player.getTags().contains(IronStrengthSkill.TAG_IRON_STRENGTH)) {
+                event.setCanceled(true);
+                player.heal(2.5f); // Restaura 1.25 corazones por impacto recibido
+
+                ServerLevel level = (ServerLevel) player.level();
+                level.sendParticles(ParticleTypes.HEART, player.getX(), player.getY() + 1.0, player.getZ(), 4, 0.2, 0.2, 0.2, 0.05);
+                level.playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.EXPERIENCE_ORB_PICKUP, SoundSource.PLAYERS, 0.6f, 1.5f);
+                return;
+            }
+
+            // Dash I-Frames
             player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
                 if (skills.hasDashIFrames()) {
                     event.setCanceled(true);
-
                     ServerLevel level = (ServerLevel) player.level();
                     level.sendParticles(ParticleTypes.CRIT, player.getX(), player.getY() + 1.0, player.getZ(), 6, 0.2, 0.2, 0.2, 0.1);
                     level.playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.SHIELD_BLOCK, SoundSource.PLAYERS, 0.5f, 2.0f);
@@ -138,7 +150,6 @@ public class ModEvents {
             });
         }
     }
-
     // 4. Anulación del Daño de Caída del Salto de Viento
     @SubscribeEvent
     public static void onLivingFall(LivingFallEvent event) {
