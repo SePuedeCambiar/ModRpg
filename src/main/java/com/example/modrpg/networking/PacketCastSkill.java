@@ -1,7 +1,7 @@
 package com.example.modrpg.networking;
 
 import com.example.modrpg.skills.PlayerSkillsProvider;
-import com.example.modrpg.skills.SkillEconomy; // <-- CAMBIO 1: Import añadido
+import com.example.modrpg.skills.SkillEconomy;
 import com.example.modrpg.skills.data.SkillNode;
 import com.example.modrpg.skills.data.SkillRegistry;
 import net.minecraft.network.FriendlyByteBuf;
@@ -36,42 +36,37 @@ public class PacketCastSkill {
             player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
                 SkillNode node = SkillRegistry.get(msg.skillId);
 
-                // 1. Validar que la habilidad exista en el registro
                 if (node == null) {
-                    player.displayClientMessage(
-                            Component.literal("§c[RPG] Habilidad no registrada: §e" + msg.skillId),
-                            true
-                    );
+                    player.displayClientMessage(Component.literal("§c[RPG] Habilidad no registrada: §e" + msg.skillId), true);
                     return;
                 }
 
-                // 2. Validar que el jugador la tenga desbloqueada
                 if (!skills.isNodeUnlocked(node.getId())) {
-                    player.displayClientMessage(
-                            Component.literal("§c🔒 Aún no has desbloqueado: §f" + node.getDisplayName().getString()),
-                            true
-                    );
+                    player.displayClientMessage(Component.literal("§c🔒 Aún no has desbloqueado: §f" + node.getDisplayName().getString()), true);
                     return;
                 }
 
-                // 3. Validar enfriamiento (Cooldown)
                 if (skills.hasCooldown(node.getId())) {
                     int remainingSeconds = (skills.getCooldown(node.getId()) / 20) + 1;
-                    player.displayClientMessage(
-                            Component.literal("§c⏳ Habilidad en enfriamiento: §e" + remainingSeconds + "s"),
-                            true
-                    );
+                    player.displayClientMessage(Component.literal("§c⏳ En enfriamiento: §e" + remainingSeconds + "s"), true);
                     return;
                 }
 
-                // 4. Aplicar cooldown base y ejecutar la habilidad
+                // Validación y consumo de maná
+                if (node.getManaCost() > 0.0f) {
+                    if (!skills.consumeMana(node.getManaCost())) {
+                        player.displayClientMessage(Component.literal("§9§l⚡ ¡Maná insuficiente! §7(Necesitas: §b" + (int) node.getManaCost() + "§7)"), true);
+                        return;
+                    }
+                    // Sincronización instantánea de maná
+                    ModMessages.sendToPlayer(new PacketSyncMana(skills.getCurrentMana(), skills.getMaxMana()), player);
+                }
+
                 if (node.getDefaultCooldownTicks() > 0) {
                     skills.setCooldown(node.getId(), node.getDefaultCooldownTicks());
                 }
 
                 node.onExecuteActive(player, skills);
-
-                // CAMBIO 2: Sincronizar inmediatamente el nuevo cooldown hacia el cliente
                 SkillEconomy.syncSkills(player);
             });
         });

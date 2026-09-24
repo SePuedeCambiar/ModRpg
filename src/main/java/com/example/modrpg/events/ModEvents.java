@@ -2,6 +2,8 @@ package com.example.modrpg.events;
 
 import com.example.modrpg.ModRpg;
 import com.example.modrpg.commands.RpgCommands;
+import com.example.modrpg.networking.ModMessages;
+import com.example.modrpg.networking.PacketSyncMana;
 import com.example.modrpg.skills.PlayerSkills;
 import com.example.modrpg.skills.PlayerSkillsProvider;
 import com.example.modrpg.skills.SkillAttributes;
@@ -77,26 +79,34 @@ public class ModEvents {
         RpgCommands.register(event.getDispatcher());
     }
 
-    // 1. Tick de Cooldowns e I-Frames (Descuenta en Servidor y Cliente)
+    // 1. Tick de Cooldowns, I-Frames y Regeneración de Maná
     @SubscribeEvent
     public static void onPlayerTick(TickEvent.PlayerTickEvent event) {
         if (event.phase == TickEvent.Phase.END) {
             event.player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
-                if (!skills.getAllCooldowns().isEmpty()) {
+                if (!event.player.level().isClientSide()) {
+                    skills.tickServerSide();
+
+                    // Sincronizar periódicamente cada segundo (20 ticks) al jugador
+                    if (event.player.tickCount % 20 == 0 && event.player instanceof ServerPlayer serverPlayer) {
+                        ModMessages.sendToPlayer(
+                                new PacketSyncMana(skills.getCurrentMana(), skills.getMaxMana()),
+                                serverPlayer
+                        );
+                    }
+                } else {
                     skills.tickCooldowns();
                 }
-                skills.tickIFrames(); // Descuenta los frames de invulnerabilidad del Dash
             });
         }
     }
 
-    // 2. Inmunidad Absoluta durante el Dash (Solución al Bug 3)
+    // 2. Inmunidad Absoluta durante el Dash
     @SubscribeEvent
     public static void onLivingAttack(LivingAttackEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
             player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
                 if (skills.hasDashIFrames()) {
-                    // Cancela daño, empuje, retroceso y daño a la armadura
                     event.setCanceled(true);
 
                     ServerLevel level = (ServerLevel) player.level();
@@ -107,7 +117,7 @@ public class ModEvents {
         }
     }
 
-    // 3. Anulación del Daño de Caída del Salto de Viento (Solución al Bug 2)
+    // 3. Anulación del Daño de Caída del Salto de Viento
     @SubscribeEvent
     public static void onLivingFall(LivingFallEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {

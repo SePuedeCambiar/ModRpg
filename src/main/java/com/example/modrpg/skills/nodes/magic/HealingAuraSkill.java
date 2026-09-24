@@ -19,16 +19,18 @@ public class HealingAuraSkill extends SkillNode {
                 SkillRegistry.NODE_HEALING_AURA,
                 SkillRegistry.BRANCH_MAGIC,
                 Component.literal("Aura de Sanación"),
-                Component.literal("Restaura salud al instante, limpia efectos negativos y otorga Regeneración temporal."),
+                Component.literal("Restaura salud al instante, limpia efectos negativos y otorga Regeneración temporal. (Coste: 35 Maná)"),
                 NodeType.ACTIVE_ABILITY,
-                240 // 12 segundos de recarga
+                240 // 12 segundos de recarga (240 ticks)
         );
+        // Coste de Maná integrado para el Sprint 1
+        this.setManaCost(35.0f);
     }
 
     @Override
     public void onExecuteActive(ServerPlayer player, PlayerSkills skills) {
         int magicLvl = skills.getBranchLevel(SkillRegistry.BRANCH_MAGIC);
-        float healAmount = 6.0f + (magicLvl * 0.2f); // 3 corazones base + escalado
+        float healAmount = 6.0f + (magicLvl * 0.2f); // 3 corazones base + escalado de magia
 
         player.heal(healAmount);
         player.removeEffect(MobEffects.POISON);

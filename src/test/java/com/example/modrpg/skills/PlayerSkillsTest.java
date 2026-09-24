@@ -122,4 +122,39 @@ class PlayerSkillsTest {
         assertFalse(clientSkills.hasCooldown(skillTornado), "El cooldown debe expirar tras 60 ticks en el cliente");
         assertEquals(0, clientSkills.getCooldown(skillTornado));
     }
+    @Test
+    @DisplayName("El maná no debe superar el máximo ni caer por debajo de cero")
+    void testManaBoundsAndConsumption() {
+        assertEquals(100.0f, skills.getCurrentMana());
+
+        // Consumo exitoso
+        assertTrue(skills.consumeMana(40.0f));
+        assertEquals(60.0f, skills.getCurrentMana(), 0.01f);
+
+        // Consumo excesivo rechazado
+        assertFalse(skills.consumeMana(150.0f));
+        assertEquals(60.0f, skills.getCurrentMana(), 0.01f);
+
+        // Recuperación limitada al máximo
+        skills.restoreMana(200.0f);
+        assertEquals(skills.getMaxMana(), skills.getCurrentMana(), 0.01f);
+    }
+
+    @Test
+    @DisplayName("La regeneración de maná debe escalar con un +5% por cada nivel de Magia")
+    void testManaRegenScaling() {
+        ResourceLocation branchMagic = new ResourceLocation("modrpg", "magic");
+
+        // Nivel 0 de magia: 2.0 maná/segundo base
+        skills.setBranchLevel(branchMagic, 0);
+        assertEquals(2.0f, skills.getManaRegenPerSecond(), 0.01f);
+
+        // Nivel 10 de magia: +50% -> 3.0 maná/segundo
+        skills.setBranchLevel(branchMagic, 10);
+        assertEquals(3.0f, skills.getManaRegenPerSecond(), 0.01f);
+
+        // Nivel 100 de magia: +500% (6x base) -> 12.0 maná/segundo
+        skills.setBranchLevel(branchMagic, 100);
+        assertEquals(12.0f, skills.getManaRegenPerSecond(), 0.01f);
+    }
 }

@@ -10,7 +10,7 @@ import net.minecraftforge.network.simple.SimpleChannel;
 public class ModMessages {
 
     private static SimpleChannel INSTANCE;
-    private static final String PROTOCOL_VERSION = "3";
+    private static final String PROTOCOL_VERSION = "4";
     public static final ResourceLocation NETWORK_ID = new ResourceLocation(ModRpg.MODID, "main");
 
     public static void register() {
@@ -21,41 +21,11 @@ public class ModMessages {
                 PROTOCOL_VERSION::equals
         );
 
-        // ID 0: Casteo de habilidad activa con tecla
-        INSTANCE.registerMessage(
-                0,
-                PacketCastSkill.class,
-                PacketCastSkill::encode,
-                PacketCastSkill::decode,
-                PacketCastSkill::handle
-        );
-
-        // ID 1: Sincronización completa de datos
-        INSTANCE.registerMessage(
-                1,
-                PacketSyncSkillsToClient.class,
-                PacketSyncSkillsToClient::encode,
-                PacketSyncSkillsToClient::decode,
-                PacketSyncSkillsToClient::handle
-        );
-
-        // ID 2: Subir nivel de rama con botón
-        INSTANCE.registerMessage(
-                2,
-                PacketUpgradeSkill.class,
-                PacketUpgradeSkill::encode,
-                PacketUpgradeSkill::decode,
-                PacketUpgradeSkill::handle
-        );
-
-        // ID 3: Comprar / Desbloquear nodo desde el árbol
-        INSTANCE.registerMessage(
-                3,
-                PacketUnlockNode.class,
-                PacketUnlockNode::encode,
-                PacketUnlockNode::decode,
-                PacketUnlockNode::handle
-        );
+        INSTANCE.registerMessage(0, PacketCastSkill.class, PacketCastSkill::encode, PacketCastSkill::decode, PacketCastSkill::handle);
+        INSTANCE.registerMessage(1, PacketSyncSkillsToClient.class, PacketSyncSkillsToClient::encode, PacketSyncSkillsToClient::decode, PacketSyncSkillsToClient::handle);
+        INSTANCE.registerMessage(2, PacketUpgradeSkill.class, PacketUpgradeSkill::encode, PacketUpgradeSkill::decode, PacketUpgradeSkill::handle);
+        INSTANCE.registerMessage(3, PacketUnlockNode.class, PacketUnlockNode::encode, PacketUnlockNode::decode, PacketUnlockNode::handle);
+        INSTANCE.registerMessage(4, PacketSyncMana.class, PacketSyncMana::encode, PacketSyncMana::decode, PacketSyncMana::handle);
     }
 
     public static <MSG> void sendToServer(MSG message) {

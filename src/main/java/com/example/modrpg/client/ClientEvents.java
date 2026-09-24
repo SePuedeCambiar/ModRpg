@@ -59,4 +59,9 @@ public class ClientEvents {
             if (KeyBinding.HEAL_KEY.consumeClick())           ModMessages.sendToServer(new PacketCastSkill(SkillRegistry.NODE_HEALING_AURA));
         }
     }
+    @SubscribeEvent
+    public static void registerOverlays(RegisterGuiOverlaysEvent event) {
+        event.registerAbove(VanillaGuiOverlay.HOTBAR.id(), "skill_cooldowns", SkillCooldownOverlay.HUD_SKILLS);
+        event.registerAbove(VanillaGuiOverlay.PLAYER_HEALTH.id(), "mana_overlay", ManaOverlay.HUD_MANA);
+    }
 }

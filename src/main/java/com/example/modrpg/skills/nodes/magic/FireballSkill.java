@@ -24,10 +24,12 @@ public class FireballSkill extends SkillNode {
                 SkillRegistry.NODE_FIREBALL,
                 SkillRegistry.BRANCH_MAGIC,
                 Component.literal("Piroclasto Elemental"),
-                Component.literal("Lanza una ráfaga de fuego arcano hacia el frente que incinera y daña a todos los enemigos en su paso."),
+                Component.literal("Lanza una ráfaga de fuego arcano hacia el frente que incinera y daña a todos los enemigos en su paso. (Coste: 20 Maná)"),
                 NodeType.ACTIVE_ABILITY,
-                100 // 5 segundos de recarga
+                100 // 5 segundos de recarga (100 ticks)
         );
+        // Coste de Maná integrado para el Sprint 1
+        this.setManaCost(20.0f);
     }
 
     @Override

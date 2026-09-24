@@ -29,9 +29,9 @@ public abstract class SkillNode {
     private final Component description;
     private final NodeType type;
     private final int defaultCooldownTicks;
-    private final List<SkillRequirement> requirements = new ArrayList<>();
+    private float manaCost = 0.0f; // Coste en Maná (0 por defecto para ataques físicos)
 
-    // Propiedades visuales para la GUI
+    private final List<SkillRequirement> requirements = new ArrayList<>();
     private int posX = 0;
     private int posY = 0;
     private final List<ResourceLocation> parentIds = new ArrayList<>();
@@ -46,12 +46,20 @@ public abstract class SkillNode {
         this.defaultCooldownTicks = defaultCooldownTicks;
     }
 
+    public SkillNode setManaCost(float manaCost) {
+        this.manaCost = Math.max(0.0f, manaCost);
+        return this;
+    }
+
+    public float getManaCost() {
+        return manaCost;
+    }
+
     public SkillNode addRequirement(SkillRequirement requirement) {
         this.requirements.add(requirement);
         return this;
     }
 
-    // Configuración visual con soporte multi-padre
     public SkillNode setVisuals(int x, int y, ItemStack icon, ResourceLocation... parents) {
         this.posX = x;
         this.posY = y;
@@ -64,13 +72,6 @@ public abstract class SkillNode {
         return this;
     }
 
-    public SkillNode addParent(ResourceLocation parentId) {
-        if (parentId != null && !this.parentIds.contains(parentId)) {
-            this.parentIds.add(parentId);
-        }
-        return this;
-    }
-
     public ResourceLocation getId() { return id; }
     public ResourceLocation getBranchId() { return branchId; }
     public Component getDisplayName() { return displayName; }
@@ -78,7 +79,6 @@ public abstract class SkillNode {
     public NodeType getType() { return type; }
     public int getDefaultCooldownTicks() { return defaultCooldownTicks; }
     public List<SkillRequirement> getRequirements() { return Collections.unmodifiableList(requirements); }
-
     public int getPosX() { return posX; }
     public int getPosY() { return posY; }
     public List<ResourceLocation> getParentIds() { return Collections.unmodifiableList(parentIds); }
@@ -94,11 +94,9 @@ public abstract class SkillNode {
 
     public boolean tryUnlock(ServerPlayer player, PlayerSkills skills) {
         if (!canUnlock(player, skills)) return false;
-
         for (SkillRequirement req : requirements) {
             req.consume(player, skills);
         }
-
         skills.unlockNode(this.id);
         onUnlocked(player, skills);
         return true;
