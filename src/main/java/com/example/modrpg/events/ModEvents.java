@@ -11,8 +11,10 @@ import com.example.modrpg.skills.SkillEconomy;
 import com.example.modrpg.skills.SkillProgression;
 import com.example.modrpg.skills.data.SkillNode;
 import com.example.modrpg.skills.data.SkillRegistry;
+import com.example.modrpg.skills.nodes.defense.IronStrengthSkill;
 import com.example.modrpg.skills.nodes.magic.MinionHelper;
 import com.example.modrpg.skills.nodes.mobility.AirJumpSkill;
+import com.example.modrpg.skills.nodes.mobility.ImpactJumpSkill;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
@@ -24,6 +26,7 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.AbstractArrow;
+import net.minecraft.world.phys.AABB;
 import net.minecraftforge.event.AttachCapabilitiesEvent;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.TickEvent;
@@ -36,8 +39,8 @@ import net.minecraftforge.event.entity.living.LivingHurtEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
-import com.example.modrpg.skills.nodes.defense.IronStrengthSkill;
 
+import java.util.List;
 
 @Mod.EventBusSubscriber(modid = ModRpg.MODID)
 public class ModEvents {
@@ -92,12 +95,17 @@ public class ModEvents {
                 if (!event.player.level().isClientSide()) {
                     skills.tickServerSide();
 
-                    // Sincroniza maná al cliente cada 1 segundo (20 ticks)
+                    // Sincroniza maná cada segundo (20 ticks) al jugador
                     if (event.player.tickCount % 20 == 0 && event.player instanceof ServerPlayer serverPlayer) {
                         ModMessages.sendToPlayer(
                                 new PacketSyncMana(skills.getCurrentMana(), skills.getMaxMana()),
                                 serverPlayer
                         );
+                    }
+
+                    // Limpieza de seguridad de Fuerza de Hierro tras 12 segundos (240 ticks)
+                    if (event.player.tickCount % 240 == 0 && event.player.getTags().contains(IronStrengthSkill.TAG_IRON_STRENGTH)) {
+                        event.player.removeTag(IronStrengthSkill.TAG_IRON_STRENGTH);
                     }
                 } else {
                     skills.tickCooldowns();
@@ -106,7 +114,7 @@ public class ModEvents {
         }
     }
 
-    // 2. Control de tiempo de vida (Lifespan) de los esbirros invocados
+    // 2. Control de tiempo de vida (Lifespan) de esbirros e invocaciones
     @SubscribeEvent
     public static void onLivingTick(LivingEvent.LivingTickEvent event) {
         LivingEntity entity = event.getEntity();
@@ -115,23 +123,23 @@ public class ModEvents {
         }
     }
 
-    // 3. Prevención de Fuego Amigo (Jugador vs Minions) + I-Frames del Dash
-    // 3. Prevención de Fuego Amigo + I-Frames del Dash + Fuerza de Hierro (Curación)
+    // 3. Fuego Amigo + I-Frames del Dash + Fuerza de Hierro (Curación de daño entrante)
     @SubscribeEvent
     public static void onLivingAttack(LivingAttackEvent event) {
         Entity attacker = event.getSource().getEntity();
         Entity victim = event.getEntity();
 
+        // Inmunidad mutua entre jugador y sus criaturas aliadas
         if (MinionHelper.areAllies(attacker, victim)) {
             event.setCanceled(true);
             return;
         }
 
         if (victim instanceof ServerPlayer player) {
-            // Fuerza de Hierro: anula daño y cura al jugador
+            // Fuerza de Hierro: Anula daño y cura 2.5 de vida (1.25 corazones) por golpe recibido
             if (player.getTags().contains(IronStrengthSkill.TAG_IRON_STRENGTH)) {
                 event.setCanceled(true);
-                player.heal(2.5f); // Restaura 1.25 corazones por impacto recibido
+                player.heal(2.5f);
 
                 ServerLevel level = (ServerLevel) player.level();
                 level.sendParticles(ParticleTypes.HEART, player.getX(), player.getY() + 1.0, player.getZ(), 4, 0.2, 0.2, 0.2, 0.05);
@@ -139,7 +147,7 @@ public class ModEvents {
                 return;
             }
 
-            // Dash I-Frames
+            // Dash: I-Frames de esquiva
             player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
                 if (skills.hasDashIFrames()) {
                     event.setCanceled(true);
@@ -150,15 +158,50 @@ public class ModEvents {
             });
         }
     }
-    // 4. Anulación del Daño de Caída del Salto de Viento
+
+    // 4. Caída: Salto con Impacto (150 Daño en Área) y Salto de Viento
     @SubscribeEvent
     public static void onLivingFall(LivingFallEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
+            ServerLevel level = (ServerLevel) player.level();
+
+            // CASO A: Salto con Impacto (Ground Slam) -> Detona 150 de daño en área al caer
+            if (player.getTags().contains(ImpactJumpSkill.TAG_GROUND_SLAM)) {
+                player.removeTag(ImpactJumpSkill.TAG_GROUND_SLAM);
+                event.setCanceled(true); // Cancela el daño de caída al jugador
+
+                AABB blastArea = player.getBoundingBox().inflate(5.5, 2.0, 5.5);
+                List<LivingEntity> enemies = level.getEntitiesOfClass(
+                        LivingEntity.class, blastArea,
+                        e -> e != player && e.isAlive() && !MinionHelper.areAllies(player, e)
+                );
+
+                for (LivingEntity enemy : enemies) {
+                    enemy.hurt(player.damageSources().playerAttack(player), 150.0f);
+                    double dx = enemy.getX() - player.getX();
+                    double dz = enemy.getZ() - player.getZ();
+                    enemy.knockback(1.8, -dx, -dz);
+                }
+
+                level.sendParticles(ParticleTypes.EXPLOSION_EMITTER, player.getX(), player.getY(), player.getZ(), 1, 0, 0, 0, 0);
+                level.sendParticles(ParticleTypes.SONIC_BOOM, player.getX(), player.getY() + 0.5, player.getZ(), 1, 0, 0, 0, 0);
+                level.sendParticles(ParticleTypes.CAMPFIRE_COSY_SMOKE, player.getX(), player.getY() + 0.2, player.getZ(), 20, 0.6, 0.1, 0.6, 0.05);
+
+                level.playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.GENERIC_EXPLODE, SoundSource.PLAYERS, 1.5f, 0.8f);
+                level.playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.WARDEN_SONIC_BOOM, SoundSource.PLAYERS, 1.2f, 1.2f);
+
+                player.displayClientMessage(
+                        Component.literal("§4§l💥 ¡DETONACIÓN SÍSMICA! §c150 Daño infligido a §e" + enemies.size() + "§c objetivos"),
+                        true
+                );
+                return;
+            }
+
+            // CASO B: Salto de Viento normal
             if (player.getTags().contains(AirJumpSkill.AIR_JUMP_SAFE_TAG)) {
                 player.removeTag(AirJumpSkill.AIR_JUMP_SAFE_TAG);
                 event.setCanceled(true);
 
-                ServerLevel level = (ServerLevel) player.level();
                 level.sendParticles(ParticleTypes.CLOUD, player.getX(), player.getY(), player.getZ(), 10, 0.3, 0.05, 0.3, 0.05);
                 level.playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.WOOL_FALL, SoundSource.PLAYERS, 1.0f, 1.4f);
             }
@@ -181,7 +224,7 @@ public class ModEvents {
         }
     }
 
-    // 6. Modificación de Proyectiles al Disparar
+    // 6. Proyectiles
     @SubscribeEvent
     public static void onArrowSpawn(EntityJoinLevelEvent event) {
         if (!event.getLevel().isClientSide() && event.getEntity() instanceof AbstractArrow arrow) {
@@ -204,7 +247,6 @@ public class ModEvents {
         Entity attacker = event.getSource().getEntity();
         Entity target = event.getEntity();
 
-        // Si el atacante es el jugador, ordenar a los esbirros que ataquen a ese objetivo
         if (attacker instanceof ServerPlayer player && target instanceof LivingEntity livingTarget) {
             MinionHelper.redirectMinionsTarget(player, livingTarget, 16.0);
 
@@ -226,7 +268,6 @@ public class ModEvents {
             });
         }
 
-        // Si la víctima es el jugador (mitigación pasiva de defensa)
         if (target instanceof ServerPlayer victim) {
             victim.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
                 int defLvl = skills.getBranchLevel(SkillRegistry.BRANCH_DEFENSE);
