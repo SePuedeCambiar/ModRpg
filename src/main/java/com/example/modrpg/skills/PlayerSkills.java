@@ -11,26 +11,28 @@ import java.util.*;
 
 public class PlayerSkills {
 
+    public static final int MAX_LOADOUT_SLOTS = 8;
+
     // =========================================================================
-    // ESTRUCTURAS DINÁMICAS (Mapas y Conjuntos)
+    // ESTRUCTURAS DE DATOS
     // =========================================================================
     private final Map<ResourceLocation, Integer> branchLevels = new HashMap<>();
     private final Set<ResourceLocation> unlockedNodes = new HashSet<>();
     private final Map<ResourceLocation, Integer> practiceCounters = new HashMap<>();
     private final Map<ResourceLocation, Integer> cooldowns = new HashMap<>();
 
-    // Estado para el golpe cargado de la definitiva
-    private boolean ultimateCharged = false;
+    // Ranuras activas de combate (Loadout)
+    private final List<ResourceLocation> equippedSkills = new ArrayList<>();
 
-    // Contador de ticks de invulnerabilidad (i-frames del Dash)
+    // Estados transitorios de combate
+    private boolean ultimateCharged = false;
     private int dashIFrameTicks = 0;
 
     public PlayerSkills() {}
 
     // =========================================================================
-    // GESTIÓN DE RAMAS Y NIVELES (Genérico)
+    // GESTIÓN DE RAMAS Y NIVELES
     // =========================================================================
-
     public int getBranchLevel(ResourceLocation branchId) {
         return branchLevels.getOrDefault(branchId, 0);
     }
@@ -48,19 +50,23 @@ public class PlayerSkills {
     }
 
     // =========================================================================
-    // GESTIÓN DE NODOS Y HABILIDADES (Genérico)
+    // GESTIÓN DE NODOS Y DESBLOQUEOS
     // =========================================================================
-
     public boolean isNodeUnlocked(ResourceLocation nodeId) {
         return unlockedNodes.contains(nodeId);
     }
 
     public void unlockNode(ResourceLocation nodeId) {
         unlockedNodes.add(nodeId);
+        // Si hay espacio en el loadout y es activa, equiparla automáticamente
+        if (equippedSkills.size() < MAX_LOADOUT_SLOTS && !equippedSkills.contains(nodeId)) {
+            equippedSkills.add(nodeId);
+        }
     }
 
     public void lockNode(ResourceLocation nodeId) {
         unlockedNodes.remove(nodeId);
+        equippedSkills.remove(nodeId);
     }
 
     public Set<ResourceLocation> getUnlockedNodes() {
@@ -68,9 +74,50 @@ public class PlayerSkills {
     }
 
     // =========================================================================
-    // CONTADORES DE PRÁCTICA Y BAJAS (Genérico)
+    // GESTIÓN DE LOADOUT (HABILIDADES EQUIPADAS)
     // =========================================================================
+    public List<ResourceLocation> getEquippedSkills() {
+        return Collections.unmodifiableList(equippedSkills);
+    }
 
+    public boolean equipSkill(int slot, ResourceLocation skillId) {
+        if (!isNodeUnlocked(skillId)) return false;
+        if (slot < 0 || slot >= MAX_LOADOUT_SLOTS) return false;
+
+        // Evitar duplicados
+        equippedSkills.remove(skillId);
+
+        if (slot < equippedSkills.size()) {
+            equippedSkills.set(slot, skillId);
+        } else {
+            equippedSkills.add(skillId);
+        }
+        return true;
+    }
+
+    public void unequipSkill(int slot) {
+        if (slot >= 0 && slot < equippedSkills.size()) {
+            equippedSkills.remove(slot);
+        }
+    }
+
+    public boolean isSkillEquipped(ResourceLocation skillId) {
+        return equippedSkills.contains(skillId);
+    }
+
+    public void setEquippedSkills(List<ResourceLocation> skills) {
+        this.equippedSkills.clear();
+        for (ResourceLocation rl : skills) {
+            if (this.equippedSkills.size() >= MAX_LOADOUT_SLOTS) break;
+            if (rl != null && !this.equippedSkills.contains(rl)) {
+                this.equippedSkills.add(rl);
+            }
+        }
+    }
+
+    // =========================================================================
+    // CONTADORES DE PRÁCTICA
+    // =========================================================================
     public int getPractice(ResourceLocation counterId) {
         return practiceCounters.getOrDefault(counterId, 0);
     }
@@ -88,9 +135,8 @@ public class PlayerSkills {
     }
 
     // =========================================================================
-    // GESTIÓN DE COOLDOWNS / ENFRIAMIENTOS (Genérico)
+    // COOLDOWNS / ENFRIAMIENTOS
     // =========================================================================
-
     public int getCooldown(ResourceLocation skillId) {
         return cooldowns.getOrDefault(skillId, 0);
     }
@@ -111,9 +157,6 @@ public class PlayerSkills {
         return Collections.unmodifiableMap(cooldowns);
     }
 
-    /**
-     * Decrementa los enfriamientos activos cada tick del juego.
-     */
     public void tickCooldowns() {
         if (cooldowns.isEmpty()) return;
         cooldowns.entrySet().removeIf(entry -> {
@@ -125,39 +168,26 @@ public class PlayerSkills {
     }
 
     // =========================================================================
-    // ESTADOS ESPECIALES DE COMBATE (I-Frames y Definitiva)
+    // ESTADOS ESPECIALES (I-Frames y Definitiva)
     // =========================================================================
-
     public boolean isUltimateCharged() { return ultimateCharged; }
     public void setUltimateCharged(boolean charged) { this.ultimateCharged = charged; }
 
-    public boolean hasDashIFrames() {
-        return dashIFrameTicks > 0;
-    }
-
-    public void setDashIFrames(int ticks) {
-        this.dashIFrameTicks = Math.max(0, ticks);
-    }
-
+    public boolean hasDashIFrames() { return dashIFrameTicks > 0; }
+    public void setDashIFrames(int ticks) { this.dashIFrameTicks = Math.max(0, ticks); }
     public void tickIFrames() {
-        if (dashIFrameTicks > 0) {
-            dashIFrameTicks--;
-        }
+        if (dashIFrameTicks > 0) dashIFrameTicks--;
     }
 
     // =========================================================================
-    // SINCRONIZACIÓN Y CLONACIÓN (Seguro y Atómico)
+    // SINCRONIZACIÓN Y CLONACIÓN
     // =========================================================================
-
-    /**
-     * Reemplazo limpio y seguro de todos los datos recibidos desde el servidor.
-     * Evita UnsupportedOperationException en colecciones unmodifiable.
-     */
     public void replaceAll(Map<ResourceLocation, Integer> branches,
                            Set<ResourceLocation> nodes,
                            Map<ResourceLocation, Integer> counters,
                            Map<ResourceLocation, Integer> cds,
-                           boolean ultCharged) {
+                           boolean ultCharged,
+                           List<ResourceLocation> equipped) {
         this.branchLevels.clear();
         this.branchLevels.putAll(branches);
 
@@ -171,6 +201,9 @@ public class PlayerSkills {
         this.cooldowns.putAll(cds);
 
         this.ultimateCharged = ultCharged;
+
+        this.equippedSkills.clear();
+        this.equippedSkills.addAll(equipped);
     }
 
     public void copyFrom(PlayerSkills source) {
@@ -186,34 +219,36 @@ public class PlayerSkills {
         this.cooldowns.clear();
         this.cooldowns.putAll(source.cooldowns);
 
+        this.equippedSkills.clear();
+        this.equippedSkills.addAll(source.equippedSkills);
+
         this.ultimateCharged = source.ultimateCharged;
-        this.dashIFrameTicks = 0; // Se reinicia al morir
+        this.dashIFrameTicks = 0;
     }
 
     // =========================================================================
-    // SERIALIZACIÓN NBT (Guardado en el mundo)
+    // SERIALIZACIÓN NBT
     // =========================================================================
-
     public void saveNBTData(CompoundTag nbt) {
-        // 1. Guardar ramas
         CompoundTag branchesTag = new CompoundTag();
         branchLevels.forEach((id, lvl) -> branchesTag.putInt(id.toString(), lvl));
         nbt.put("BranchLevels", branchesTag);
 
-        // 2. Guardar habilidades desbloqueadas
         ListTag nodesTag = new ListTag();
         unlockedNodes.forEach(id -> nodesTag.add(StringTag.valueOf(id.toString())));
         nbt.put("UnlockedNodes", nodesTag);
 
-        // 3. Guardar práctica
         CompoundTag practiceTag = new CompoundTag();
         practiceCounters.forEach((id, count) -> practiceTag.putInt(id.toString(), count));
         nbt.put("PracticeCounters", practiceTag);
 
-        // 4. Guardar cooldowns
         CompoundTag cdTag = new CompoundTag();
         cooldowns.forEach((id, cd) -> cdTag.putInt(id.toString(), cd));
         nbt.put("Cooldowns", cdTag);
+
+        ListTag loadoutTag = new ListTag();
+        equippedSkills.forEach(id -> loadoutTag.add(StringTag.valueOf(id.toString())));
+        nbt.put("EquippedSkills", loadoutTag);
 
         nbt.putBoolean("UltimateCharged", ultimateCharged);
     }
@@ -255,56 +290,18 @@ public class PlayerSkills {
             }
         }
 
+        equippedSkills.clear();
+        if (nbt.contains("EquippedSkills", Tag.TAG_LIST)) {
+            ListTag loadoutTag = nbt.getList("EquippedSkills", Tag.TAG_STRING);
+            for (int i = 0; i < loadoutTag.size(); i++) {
+                ResourceLocation rl = ResourceLocation.tryParse(loadoutTag.getString(i));
+                if (rl != null && !equippedSkills.contains(rl)) {
+                    equippedSkills.add(rl);
+                }
+            }
+        }
+
         this.ultimateCharged = nbt.getBoolean("UltimateCharged");
         this.dashIFrameTicks = 0;
     }
-
-    // =========================================================================
-    // MÉTODOS PUENTE TEMPORALES (Compatibilidad con GUI actual y Eventos)
-    // =========================================================================
-
-    public int getMeleeLevel() { return getBranchLevel(SkillRegistry.BRANCH_MELEE); }
-    public void setMeleeLevel(int lvl) { setBranchLevel(SkillRegistry.BRANCH_MELEE, lvl); }
-    public void addMeleeLevel(int amt) { addBranchLevel(SkillRegistry.BRANCH_MELEE, amt); }
-
-    public int getRangedLevel() { return getBranchLevel(SkillRegistry.BRANCH_RANGED); }
-    public void setRangedLevel(int lvl) { setBranchLevel(SkillRegistry.BRANCH_RANGED, lvl); }
-    public void addRangedLevel(int amt) { addBranchLevel(SkillRegistry.BRANCH_RANGED, amt); }
-
-    public int getMobilityLevel() { return getBranchLevel(SkillRegistry.BRANCH_MOBILITY); }
-    public void setMobilityLevel(int lvl) { setBranchLevel(SkillRegistry.BRANCH_MOBILITY, lvl); }
-
-    public int getMeleeKills() { return getPractice(SkillRegistry.COUNTER_MELEE_KILLS); }
-    public void setMeleeKills(int k) { setPractice(SkillRegistry.COUNTER_MELEE_KILLS, k); }
-    public void addMeleeKill() { addPractice(SkillRegistry.COUNTER_MELEE_KILLS, 1); }
-
-    public int getRangedKills() { return getPractice(SkillRegistry.COUNTER_RANGED_KILLS); }
-    public void setRangedKills(int k) { setPractice(SkillRegistry.COUNTER_RANGED_KILLS, k); }
-    public void addRangedKill() { addPractice(SkillRegistry.COUNTER_RANGED_KILLS, 1); }
-
-    public boolean hasDoubleAttack() { return isNodeUnlocked(SkillRegistry.NODE_DOUBLE_ATTACK) || getMeleeLevel() >= 4; }
-    public void setDoubleAttack(boolean u) { if (u) unlockNode(SkillRegistry.NODE_DOUBLE_ATTACK); else lockNode(SkillRegistry.NODE_DOUBLE_ATTACK); }
-
-    public boolean hasSpinAttack() { return isNodeUnlocked(SkillRegistry.NODE_HEAVY_TORNADO) || getMeleeLevel() >= 10; }
-    public void setSpinAttack(boolean u) { if (u) unlockNode(SkillRegistry.NODE_HEAVY_TORNADO); else lockNode(SkillRegistry.NODE_HEAVY_TORNADO); }
-
-    public boolean hasCapstoneMelee() { return isNodeUnlocked(SkillRegistry.NODE_ULTRACUT) || getMeleeLevel() >= 100; }
-    public void setCapstoneMelee(boolean u) { if (u) unlockNode(SkillRegistry.NODE_ULTRACUT); else lockNode(SkillRegistry.NODE_ULTRACUT); }
-
-    public boolean hasTailwind() { return isNodeUnlocked(SkillRegistry.NODE_TAILWIND) || getRangedLevel() >= 5; }
-    public void setTailwind(boolean u) { if (u) unlockNode(SkillRegistry.NODE_TAILWIND); else lockNode(SkillRegistry.NODE_TAILWIND); }
-
-    public boolean hasHypersonicArrow() { return isNodeUnlocked(SkillRegistry.NODE_HYPERSONIC) || getRangedLevel() >= 50; }
-    public void setHypersonicArrow(boolean u) { if (u) unlockNode(SkillRegistry.NODE_HYPERSONIC); else lockNode(SkillRegistry.NODE_HYPERSONIC); }
-
-    public boolean hasHybridRangedMelee() { return isNodeUnlocked(SkillRegistry.NODE_HYBRID_HUNTER) || (getMeleeLevel() >= 25 && getRangedLevel() >= 25); }
-    public void setHybridRangedMelee(boolean u) { if (u) unlockNode(SkillRegistry.NODE_HYBRID_HUNTER); else lockNode(SkillRegistry.NODE_HYBRID_HUNTER); }
-
-    public int getSpinCooldown() { return getCooldown(SkillRegistry.NODE_HEAVY_TORNADO); }
-    public void setSpinCooldown(int cd) { setCooldown(SkillRegistry.NODE_HEAVY_TORNADO, cd); }
-
-    public int getUltimateCooldown() { return getCooldown(SkillRegistry.NODE_ULTRACUT); }
-    public void setUltimateCooldown(int cd) { setCooldown(SkillRegistry.NODE_ULTRACUT, cd); }
-
-    public void tickCooldown() { tickCooldowns(); }
 }

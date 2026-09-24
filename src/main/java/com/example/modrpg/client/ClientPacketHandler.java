@@ -11,13 +11,13 @@ public class ClientPacketHandler {
         Player player = Minecraft.getInstance().player;
         if (player != null) {
             player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
-                // Sincronización atómica y segura sin tocar listas inmutables
                 skills.replaceAll(
                         msg.branchLevels,
                         msg.unlockedNodes,
                         msg.practiceCounters,
                         msg.cooldowns,
-                        msg.ultimateCharged
+                        msg.ultimateCharged,
+                        msg.equippedSkills
                 );
             });
         }

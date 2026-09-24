@@ -5,36 +5,32 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.ai.attributes.AttributeInstance;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraftforge.common.ForgeMod;
 
 import java.util.UUID;
 
 public class SkillAttributes {
 
-    // UUIDs fijos e inmutables para que Minecraft identifique nuestros modificadores RPG
+    // UUIDs fijas e inmutables para identificadores de atributos RPG
     private static final UUID MELEE_DAMAGE_UUID   = UUID.fromString("d8f5f0b8-7c8a-4d32-b8d2-123456789abc");
     private static final UUID MOBILITY_SPEED_UUID = UUID.fromString("e9a6f1c9-8d9b-5e43-c9e3-987654321fed");
+    private static final UUID STEP_HEIGHT_UUID    = UUID.fromString("a1b2c3d4-e5f6-4a5b-8c9d-0123456789ab");
 
     /**
-     * Aplica o actualiza todos los modificadores de atributos del jugador
-     * según los niveles actuales de sus ramas RPG.
+     * Aplica o actualiza todos los modificadores de atributos del jugador.
      */
     public static void applyModifiers(ServerPlayer player) {
         player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
             applyMeleeDamage(player, skills.getBranchLevel(SkillRegistry.BRANCH_MELEE));
             applyMobilitySpeed(player, skills.getBranchLevel(SkillRegistry.BRANCH_MOBILITY));
+            applyStepHeight(player, skills);
         });
     }
 
-    /**
-     * Aplica la curva de daño CaC:
-     * - A nivel bajo (<10) el aumento es sutil y casi no se nota.
-     * - A nivel 100 otorga un +200% del daño base (triplica el daño físico).
-     */
     private static void applyMeleeDamage(ServerPlayer player, int level) {
         AttributeInstance attribute = player.getAttribute(Attributes.ATTACK_DAMAGE);
         if (attribute == null) return;
 
-        // Limpiamos siempre el modificador anterior para evitar duplicaciones
         attribute.removeModifier(MELEE_DAMAGE_UUID);
         if (level <= 0) return;
 
@@ -49,10 +45,6 @@ public class SkillAttributes {
         ));
     }
 
-    /**
-     * Aplica el aumento de velocidad de movimiento de forma segura para no romper
-     * el campo visual (FOV) ni la cámara del jugador.
-     */
     private static void applyMobilitySpeed(ServerPlayer player, int level) {
         AttributeInstance attribute = player.getAttribute(Attributes.MOVEMENT_SPEED);
         if (attribute == null) return;
@@ -68,5 +60,32 @@ public class SkillAttributes {
                 bonusSpeed,
                 AttributeModifier.Operation.ADDITION
         ));
+    }
+
+    /**
+     * Aplica el aumento de altura de paso mediante el atributo de Forge 1.20.1.
+     * Acumula el nodo Paso Ligero (+0.5 bloques) y futuras mejoras de paso.
+     */
+    private static void applyStepHeight(ServerPlayer player, PlayerSkills skills) {
+        AttributeInstance attribute = player.getAttribute(ForgeMod.STEP_HEIGHT_ADDITION.get());
+        if (attribute == null) return;
+
+        attribute.removeModifier(STEP_HEIGHT_UUID);
+
+        double totalStepAddition = 0.0;
+
+        // Si tiene desbloqueado Paso Ligero (+0.5)
+        if (skills.isNodeUnlocked(SkillRegistry.NODE_LIGHT_STEP)) {
+            totalStepAddition += 0.5;
+        }
+
+        if (totalStepAddition > 0.0) {
+            attribute.addTransientModifier(new AttributeModifier(
+                    STEP_HEIGHT_UUID,
+                    "modrpg_step_height",
+                    totalStepAddition,
+                    AttributeModifier.Operation.ADDITION
+            ));
+        }
     }
 }

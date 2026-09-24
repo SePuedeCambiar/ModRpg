@@ -72,21 +72,43 @@ class PlayerSkillsTest {
     }
 
     @Test
+    @DisplayName("El sistema de Loadout debe permitir equipar hasta 8 habilidades y evitar duplicados")
+    void testLoadoutEquipAndSlots() {
+        ResourceLocation skill1 = new ResourceLocation("modrpg", "skill_1");
+        ResourceLocation skill2 = new ResourceLocation("modrpg", "skill_2");
+
+        skills.unlockNode(skill1);
+        skills.unlockNode(skill2);
+
+        assertTrue(skills.isSkillEquipped(skill1));
+        assertTrue(skills.isSkillEquipped(skill2));
+        assertEquals(2, skills.getEquippedSkills().size());
+
+        skills.unequipSkill(0);
+        assertFalse(skills.isSkillEquipped(skill1));
+        assertTrue(skills.isSkillEquipped(skill2));
+
+        skills.equipSkill(0, skill1);
+        assertTrue(skills.isSkillEquipped(skill1));
+    }
+
+    @Test
     @DisplayName("Simulación de sincronización y decremento de cooldown en el cliente")
     void testClientCooldownSyncAndTick() {
-        // 1. Servidor aplica cooldown de 60 ticks (3 segundos)
+        // 1. Servidor aplica cooldown de 60 ticks
         PlayerSkills serverSkills = new PlayerSkills();
         serverSkills.setCooldown(skillTornado, 60);
         assertTrue(serverSkills.hasCooldown(skillTornado));
 
-        // 2. Cliente recibe los datos y actualiza limpiamente
+        // 2. Cliente recibe los datos y actualiza limpiamente (6 argumentos con getEquippedSkills())
         PlayerSkills clientSkills = new PlayerSkills();
         clientSkills.replaceAll(
                 serverSkills.getAllBranchLevels(),
                 serverSkills.getUnlockedNodes(),
                 serverSkills.getAllPracticeCounters(),
                 serverSkills.getAllCooldowns(),
-                serverSkills.isUltimateCharged()
+                serverSkills.isUltimateCharged(),
+                serverSkills.getEquippedSkills() // <-- Corregido el 6to argumento
         );
 
         assertTrue(clientSkills.hasCooldown(skillTornado));

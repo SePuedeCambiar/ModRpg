@@ -18,14 +18,15 @@ public class SkillProgression {
 
     /**
      * Calcula el bono plano de daño cuerpo a cuerpo.
-     * Curva de poder: casi nula al inicio, pero escala hasta +200% a nivel 100.
+     * Progresión lineal estricta (+2% por nivel respecto al daño base).
+     * Nivel 1: +2% | Nivel 50: +100% | Nivel 100: +200% (+2x daño base adicional)
      */
     public static double getMeleeBonusDamage(double baseAttack, int level) {
         if (level <= 0) return 0.0;
         int clampedLevel = Math.min(level, MAX_LEVEL);
 
-        // Curva progresiva (L / 100)^1.6 * 2.0
-        double multiplier = Math.pow((double) clampedLevel / MAX_LEVEL, 1.6) * 2.0;
+        // Escalado lineal directo: 0.02 * nivel
+        double multiplier = clampedLevel * 0.02;
         return baseAttack * multiplier;
     }
 
@@ -40,8 +41,6 @@ public class SkillProgression {
 
     /**
      * Multiplicador de mitigación de daño defensivo.
-     * Nivel 0 -> 1.0 (recibe 100% de daño).
-     * Nivel 100 -> 0.60 (recibe solo 60% de daño = 40% de reducción pasiva).
      */
     public static float getDefenseDamageFactor(int level) {
         if (level <= 0) return 1.0f;

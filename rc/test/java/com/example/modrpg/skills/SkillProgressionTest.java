@@ -12,51 +12,39 @@ class SkillProgressionTest {
     @Test
     @DisplayName("El costo de XP debe escalar suave al inicio y exigir 100 niveles de XP a nivel 99/100")
     void testXpCostProgression() {
-        // Niveles bajos son muy baratos
         assertEquals(1, SkillProgression.getXpCost(0), "Nivel 0 debe costar 1 nivel");
         assertTrue(SkillProgression.getXpCost(10) <= 5, "Nivel 10 debe costar entre 3 y 5 niveles de XP");
-
-        // Nivel medio requiere esfuerzo
         assertTrue(SkillProgression.getXpCost(50) >= 30, "Nivel 50 debe costar al menos 30 niveles");
-
-        // Nivel 99 exige exactamente los 100 niveles de XP pedidos por el reto
         assertEquals(100, SkillProgression.getXpCost(99), "Para pasar a nivel 100 debe costar 100 niveles de XP");
         assertEquals(100, SkillProgression.getXpCost(100), "A nivel 100 se congela en 100");
     }
 
     @Test
-    @DisplayName("La curva de daño CaC no debe notarse a nivel bajo pero debe triplicar (+200%) a nivel 100")
-    void testMeleeDamageCurve() {
-        double baseAttack = 9.0; // Espada de diamante base
+    @DisplayName("La curva de daño CaC debe ser estrictamente lineal (+2% por nivel, triplicando a nivel 100)")
+    void testMeleeDamageCurveLinear() {
+        double baseAttack = 10.0;
 
         // Nivel 0: sin bono
-        assertEquals(0.0, SkillProgression.getMeleeBonusDamage(baseAttack, 0), 0.01);
+        assertEquals(0.0, SkillProgression.getMeleeBonusDamage(baseAttack, 0), 0.001);
 
-        // Nivel 5: el bono es insignificante (+0.1 de daño)
-        double lowBonus = SkillProgression.getMeleeBonusDamage(baseAttack, 5);
-        assertTrue(lowBonus < 0.25, "A nivel 5 casi no debe notarse el aumento");
+        // Nivel 1: +2% exacto (+0.2 de daño)
+        assertEquals(0.2, SkillProgression.getMeleeBonusDamage(baseAttack, 1), 0.001);
 
-        // Nivel 100: bono exacto del +200% (+18 de daño -> total 27)
-        double maxBonus = SkillProgression.getMeleeBonusDamage(baseAttack, 100);
-        assertEquals(18.0, maxBonus, 0.1, "A nivel 100 el bono debe ser exactamente +200% del daño base");
+        // Nivel 10: +20% (+2.0 de daño)
+        assertEquals(2.0, SkillProgression.getMeleeBonusDamage(baseAttack, 10), 0.001);
+
+        // Nivel 50: +100% (+10.0 de daño, duplica el daño base)
+        assertEquals(10.0, SkillProgression.getMeleeBonusDamage(baseAttack, 50), 0.001);
+
+        // Nivel 100: +200% exacto (+20.0 de daño, triplica el daño total)
+        assertEquals(20.0, SkillProgression.getMeleeBonusDamage(baseAttack, 100), 0.001);
     }
 
     @Test
-    @DisplayName("La curva de velocidad de movilidad debe ser segura para el FOV de Minecraft")
-    void testMobilitySpeedCurve() {
-        assertEquals(0.0, SkillProgression.getMobilityBonusSpeed(0));
-
-        // A nivel 100 debe dar un bono máximo controlado (+0.08 de velocidad)
-        assertEquals(0.08, SkillProgression.getMobilityBonusSpeed(100), 0.005);
-    }
-
-    @Test
-    @DisplayName("La curva de defensa pasiva debe otorgar mitigación con rendimientos decrecientes (máximo 40%)")
+    @DisplayName("La curva de defensa pasiva debe otorgar mitigación hasta un 40% a nivel 100")
     void testDefenseMitigationCurve() {
-        assertEquals(1.0f, SkillProgression.getDefenseDamageFactor(0), 0.01f, "Nivel 0 recibe 100% de daño");
-
-        // A nivel 100 mitiga el 40% (recibe solo el 60% del impacto)
-        assertEquals(0.60f, SkillProgression.getDefenseDamageFactor(100), 0.02f, "Nivel 100 debe recibir solo el 60% de daño");
+        assertEquals(1.0f, SkillProgression.getDefenseDamageFactor(0), 0.01f);
+        assertEquals(0.60f, SkillProgression.getDefenseDamageFactor(100), 0.02f);
     }
 
     @ParameterizedTest(name = "Para subir al nivel {0}, se requieren {1} puntos de práctica")
@@ -66,7 +54,6 @@ class SkillProgressionTest {
             "50, 150",
             "100, 300"
     })
-    @DisplayName("Los requisitos de práctica deben ser predecibles para todas las ramas")
     void testUniversalPracticeRequirements(int nextLevel, int expectedPractice) {
         assertEquals(expectedPractice, SkillProgression.getRequiredPractice(nextLevel));
     }

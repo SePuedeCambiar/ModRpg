@@ -18,10 +18,9 @@ import java.util.List;
 
 public class RadialMenuScreen extends Screen {
 
-    private static final int RADIUS = 75;
-    private static final int BADGE_SIZE = 28;
+    private static final int RADIUS = 80;
+    private static final int BADGE_SIZE = 30;
 
-    // Cacheamos la lista aquí para no recrearla en cada fotograma
     private final List<SkillNode> activeSkills = new ArrayList<>();
 
     public RadialMenuScreen() {
@@ -39,10 +38,23 @@ public class RadialMenuScreen extends Screen {
         PlayerSkills skills = player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).orElse(null);
         if (skills == null) return;
 
-        for (ResourceLocation id : skills.getUnlockedNodes()) {
+        // 1. Prioridad: Cargar las habilidades equipadas en el Loadout
+        List<ResourceLocation> equipped = skills.getEquippedSkills();
+        for (ResourceLocation id : equipped) {
             SkillNode node = SkillRegistry.get(id);
             if (node != null && (node.getType() == SkillNode.NodeType.ACTIVE_ABILITY || node.getType() == SkillNode.NodeType.ULTIMATE)) {
                 activeSkills.add(node);
+            }
+        }
+
+        // 2. Fallback: Si el loadout está vacío, tomar las primeras 8 desbloqueadas
+        if (activeSkills.isEmpty()) {
+            for (ResourceLocation id : skills.getUnlockedNodes()) {
+                if (activeSkills.size() >= PlayerSkills.MAX_LOADOUT_SLOTS) break;
+                SkillNode node = SkillRegistry.get(id);
+                if (node != null && (node.getType() == SkillNode.NodeType.ACTIVE_ABILITY || node.getType() == SkillNode.NodeType.ULTIMATE)) {
+                    activeSkills.add(node);
+                }
             }
         }
     }
@@ -61,7 +73,7 @@ public class RadialMenuScreen extends Screen {
         if (skills == null) return;
 
         if (activeSkills.isEmpty()) {
-            guiGraphics.drawCenteredString(this.font, "§cNo tienes habilidades activas desbloqueadas.", centerX, centerY, 0xFFFFFF);
+            guiGraphics.drawCenteredString(this.font, "§cNo tienes habilidades activas equipadas o desbloqueadas.", centerX, centerY, 0xFFFFFF);
             super.render(guiGraphics, mouseX, mouseY, partialTick);
             return;
         }
@@ -102,7 +114,7 @@ public class RadialMenuScreen extends Screen {
                 guiGraphics.drawCenteredString(this.font, "§a✔ Listo para usar (Clic izquierdo)", centerX, centerY + 2, 0x88FF88);
             }
         } else {
-            guiGraphics.drawCenteredString(this.font, "§7Selecciona una habilidad", centerX, centerY - 6, 0xAAAAAA);
+            guiGraphics.drawCenteredString(this.font, "§7Selecciona una habilidad (" + total + "/" + PlayerSkills.MAX_LOADOUT_SLOTS + ")", centerX, centerY - 6, 0xAAAAAA);
         }
 
         super.render(guiGraphics, mouseX, mouseY, partialTick);
