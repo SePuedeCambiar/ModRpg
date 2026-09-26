@@ -38,8 +38,9 @@ public class SkillRegistry {
     public static final ResourceLocation NODE_WIDE_SWEEP            = new ResourceLocation(ModRpg.MODID, "melee_wide_sweep");
     public static final ResourceLocation NODE_STEP_BOOST_MELEE_3    = new ResourceLocation(ModRpg.MODID, "melee_step_boost_3");
     public static final ResourceLocation NODE_ETHER_DUAL_SWORD      = new ResourceLocation(ModRpg.MODID, "melee_ether_dual_sword");
-    public static final ResourceLocation NODE_BERSERKER_STANCE     = new ResourceLocation(ModRpg.MODID, "melee_berserker_stance"); // <-- NUEVA POSTURA
+    public static final ResourceLocation NODE_BERSERKER_STANCE     = new ResourceLocation(ModRpg.MODID, "melee_berserker_stance"); // <-- Postura Toggle (Paso 2)
     public static final ResourceLocation NODE_HEAVY_TORNADO         = new ResourceLocation(ModRpg.MODID, "melee_heavy_tornado");
+    public static final ResourceLocation NODE_VITAL_CLEAVE          = new ResourceLocation(ModRpg.MODID, "melee_vital_cleave");     // <-- Daño Porcentual (Paso 3)
     public static final ResourceLocation NODE_MEGACUT               = new ResourceLocation(ModRpg.MODID, "melee_megacut");
     public static final ResourceLocation NODE_ULTRACUT              = new ResourceLocation(ModRpg.MODID, "melee_ultracut");
 
@@ -159,6 +160,11 @@ public class SkillRegistry {
                 .addRequirement(SkillRequirement.branchLevel(BRANCH_MELEE, 10))
                 .addRequirement(SkillRequirement.practice(COUNTER_MELEE_KILLS, 20, "bajas CaC"))
                 .setVisuals(0, -130, new ItemStack(Items.DIAMOND_SWORD), NODE_DOUBLE_ATTACK));
+
+        // Tajo Vital (Daño Porcentual de Vida Actual - Requiere CaC Nivel 15)
+        register(new VitalCleaveSkill()
+                .addRequirement(SkillRequirement.branchLevel(BRANCH_MELEE, 15))
+                .setVisuals(50, -160, new ItemStack(Items.DIAMOND_AXE), NODE_HEAVY_TORNADO));
 
         register(new MegacutSkill()
                 .addRequirement(SkillRequirement.branchLevel(BRANCH_MELEE, 50))

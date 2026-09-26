@@ -1,5 +1,6 @@
 package com.example.modrpg.skills;
 
+import com.example.modrpg.skills.nodes.melee.VitalCleaveSkill;
 import net.minecraft.resources.ResourceLocation;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -102,7 +103,7 @@ class PlayerSkillsTest {
         serverSkills.setSelectedSkill(skillTornado);
         assertTrue(serverSkills.hasCooldown(skillTornado));
 
-        // 2. Cliente recibe los datos completos sincronizados
+        // 2. Cliente recibe los datos completos sincronizados (10 argumentos)
         PlayerSkills clientSkills = new PlayerSkills();
         clientSkills.replaceAll(
                 serverSkills.getAllBranchLevels(),
@@ -196,5 +197,21 @@ class PlayerSkillsTest {
 
         assertFalse(skills.toggleState(stanceId)); // Pasa a OFF
         assertFalse(skills.isToggleActive(stanceId));
+    }
+
+    @Test
+    @DisplayName("El Tajo Vital debe escalar su cooldown según el daño y topar en 20 segundos (400 ticks)")
+    void testVitalCleaveCooldownScaling() {
+        // Daño bajo (Zombie: 2.0 de daño) -> 200 + (2 * 4) = 208 ticks (10.4s)
+        assertEquals(208, VitalCleaveSkill.calculateCooldown(2.0f));
+
+        // Daño medio (Golem: 10.0 de daño) -> 200 + (10 * 4) = 240 ticks (12.0s)
+        assertEquals(240, VitalCleaveSkill.calculateCooldown(10.0f));
+
+        // Daño alto (Warden: 50.0 de daño) -> 200 + (50 * 4) = 400 ticks (20.0s exactos)
+        assertEquals(400, VitalCleaveSkill.calculateCooldown(50.0f));
+
+        // Daño masivo (Jefe modded de 1000 PV -> 100.0 de daño) -> Debe topar en 400 ticks (20.0s)
+        assertEquals(400, VitalCleaveSkill.calculateCooldown(100.0f));
     }
 }
