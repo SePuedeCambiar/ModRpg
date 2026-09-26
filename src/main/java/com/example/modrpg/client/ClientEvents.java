@@ -5,11 +5,14 @@ import com.example.modrpg.networking.ModMessages;
 import com.example.modrpg.networking.PacketCastSkill;
 import com.example.modrpg.skills.PlayerSkillsProvider;
 import com.example.modrpg.skills.data.SkillRegistry;
+import com.example.modrpg.skills.magic.modular.ModEntities;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.renderer.entity.ThrownItemRenderer;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.player.Player;
 import net.minecraftforge.api.distmarker.Dist;
+import net.minecraftforge.client.event.EntityRenderersEvent;
 import net.minecraftforge.client.event.InputEvent;
 import net.minecraftforge.client.event.RegisterGuiOverlaysEvent;
 import net.minecraftforge.client.event.RegisterKeyMappingsEvent;
@@ -26,7 +29,8 @@ public class ClientEvents {
         public static void onKeyRegister(RegisterKeyMappingsEvent event) {
             event.register(KeyBinding.RADIAL_MENU_KEY);
             event.register(KeyBinding.OPEN_SKILLS_KEY);
-            event.register(KeyBinding.SKILL_ACTIVATE_KEY);
+            event.register(KeyBinding.SPELL_CRAFTER_KEY); // [O] Altar de Creación de Hechizos
+            event.register(KeyBinding.SKILL_ACTIVATE_KEY); // [R] Lanzar habilidad seleccionada
             event.register(KeyBinding.SPIN_ATTACK_KEY);
             event.register(KeyBinding.MEGACUT_KEY);
             event.register(KeyBinding.DASH_KEY);
@@ -34,10 +38,17 @@ public class ClientEvents {
             event.register(KeyBinding.HEAL_KEY);
         }
 
+        // Registro de Overlays (HUD de Cooldowns y Barra de Maná con habilidad activa)
         @SubscribeEvent
         public static void registerOverlays(RegisterGuiOverlaysEvent event) {
             event.registerAbove(VanillaGuiOverlay.HOTBAR.id(), "skill_cooldowns", SkillCooldownOverlay.HUD_SKILLS);
             event.registerAbove(VanillaGuiOverlay.PLAYER_HEALTH.id(), "mana_overlay", ManaOverlay.HUD_MANA);
+        }
+
+        // Registro del renderizador para que el proyectil mágico se vea en el mundo
+        @SubscribeEvent
+        public static void registerEntityRenderers(EntityRenderersEvent.RegisterRenderers event) {
+            event.registerEntityRenderer(ModEntities.MAGIC_PROJECTILE.get(), ThrownItemRenderer::new);
         }
     }
 
@@ -54,6 +65,11 @@ public class ClientEvents {
             // [K] Menú del Árbol de Habilidades
             if (KeyBinding.OPEN_SKILLS_KEY.consumeClick()) {
                 Minecraft.getInstance().setScreen(new SkillTreeScreen());
+            }
+
+            // [O] Altar de Creación de Hechizos Modulares
+            if (KeyBinding.SPELL_CRAFTER_KEY.consumeClick()) {
+                Minecraft.getInstance().setScreen(new SpellCraftingScreen());
             }
 
             // [R] Disparar la habilidad activa seleccionada en tiempo real hacia la mira

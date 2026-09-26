@@ -16,21 +16,27 @@ import java.util.*;
 
 public class SkillRegistry {
 
-    // Ramas
+    // =========================================================================
+    // RAMAS PRINCIPALES
+    // =========================================================================
     public static final ResourceLocation BRANCH_MELEE    = new ResourceLocation(ModRpg.MODID, "melee");
     public static final ResourceLocation BRANCH_RANGED   = new ResourceLocation(ModRpg.MODID, "ranged");
     public static final ResourceLocation BRANCH_MOBILITY = new ResourceLocation(ModRpg.MODID, "mobility");
     public static final ResourceLocation BRANCH_MAGIC    = new ResourceLocation(ModRpg.MODID, "magic");
     public static final ResourceLocation BRANCH_DEFENSE  = new ResourceLocation(ModRpg.MODID, "defense");
 
-    // Práctica
-    public static final ResourceLocation COUNTER_MELEE_KILLS   = new ResourceLocation(ModRpg.MODID, "melee_kills");
-    public static final ResourceLocation COUNTER_RANGED_KILLS  = new ResourceLocation(ModRpg.MODID, "ranged_kills");
-    public static final ResourceLocation COUNTER_MAGIC_CASTS   = new ResourceLocation(ModRpg.MODID, "magic_casts");
-    public static final ResourceLocation COUNTER_DAMAGE_BLOCKED= new ResourceLocation(ModRpg.MODID, "damage_blocked");
-    public static final ResourceLocation COUNTER_DISTANCE_RUN  = new ResourceLocation(ModRpg.MODID, "distance_run");
+    // =========================================================================
+    // CONTADORES DE PRÁCTICA
+    // =========================================================================
+    public static final ResourceLocation COUNTER_MELEE_KILLS    = new ResourceLocation(ModRpg.MODID, "melee_kills");
+    public static final ResourceLocation COUNTER_RANGED_KILLS   = new ResourceLocation(ModRpg.MODID, "ranged_kills");
+    public static final ResourceLocation COUNTER_MAGIC_CASTS    = new ResourceLocation(ModRpg.MODID, "magic_casts");
+    public static final ResourceLocation COUNTER_DAMAGE_BLOCKED = new ResourceLocation(ModRpg.MODID, "damage_blocked");
+    public static final ResourceLocation COUNTER_DISTANCE_RUN   = new ResourceLocation(ModRpg.MODID, "distance_run");
 
-    // Melee
+    // =========================================================================
+    // NODOS: CUERPO A CUERPO (MELEE)
+    // =========================================================================
     public static final ResourceLocation NODE_DOUBLE_ATTACK         = new ResourceLocation(ModRpg.MODID, "melee_double_attack");
     public static final ResourceLocation NODE_UNARMED_STYLE         = new ResourceLocation(ModRpg.MODID, "melee_unarmed_style");
     public static final ResourceLocation NODE_WEAPON_MASTERY        = new ResourceLocation(ModRpg.MODID, "melee_weapon_mastery");
@@ -44,20 +50,26 @@ public class SkillRegistry {
     public static final ResourceLocation NODE_MEGACUT               = new ResourceLocation(ModRpg.MODID, "melee_megacut");
     public static final ResourceLocation NODE_ULTRACUT              = new ResourceLocation(ModRpg.MODID, "melee_ultracut");
 
-    // Ranged
+    // =========================================================================
+    // NODOS: ARQUERÍA (RANGED)
+    // =========================================================================
     public static final ResourceLocation NODE_TAILWIND              = new ResourceLocation(ModRpg.MODID, "ranged_tailwind");
     public static final ResourceLocation NODE_RAPID_FIRE            = new ResourceLocation(ModRpg.MODID, "ranged_rapid_fire");
     public static final ResourceLocation NODE_HOMING_ARROW          = new ResourceLocation(ModRpg.MODID, "ranged_homing_arrow");
     public static final ResourceLocation NODE_CROSSBOW_ARTILLERY    = new ResourceLocation(ModRpg.MODID, "ranged_crossbow_artillery");
     public static final ResourceLocation NODE_HYPERSONIC            = new ResourceLocation(ModRpg.MODID, "ranged_hypersonic");
 
-    // Sinergias Híbridas
+    // =========================================================================
+    // NODOS: SINERGIAS HÍBRIDAS
+    // =========================================================================
     public static final ResourceLocation NODE_HYBRID_HUNTER         = new ResourceLocation(ModRpg.MODID, "hybrid_hunter");
     public static final ResourceLocation NODE_ARROW_PROPULSION      = new ResourceLocation(ModRpg.MODID, "hybrid_arrow_propulsion");
     public static final ResourceLocation NODE_SWORD_QUIVER          = new ResourceLocation(ModRpg.MODID, "hybrid_sword_quiver");
     public static final ResourceLocation NODE_COMBINED_ULTIMATE     = new ResourceLocation(ModRpg.MODID, "hybrid_combined_ultimate");
 
-    // Magia y Elementos
+    // =========================================================================
+    // NODOS: MAGIA FIJA Y ELEMENTOS
+    // =========================================================================
     public static final ResourceLocation NODE_FIREBALL              = new ResourceLocation(ModRpg.MODID, "magic_fireball");
     public static final ResourceLocation NODE_HEALING_AURA          = new ResourceLocation(ModRpg.MODID, "magic_healing_aura");
     public static final ResourceLocation NODE_NECROTIC_DRAIN        = new ResourceLocation(ModRpg.MODID, "magic_necrotic_drain");
@@ -69,7 +81,17 @@ public class SkillRegistry {
     public static final ResourceLocation NODE_BEE_SWARM            = new ResourceLocation(ModRpg.MODID, "magic_bee_swarm");
     public static final ResourceLocation NODE_SUMMON_WOLVES        = new ResourceLocation(ModRpg.MODID, "magic_summon_wolves");
 
-    // Movilidad (Sprint 4)
+    // =========================================================================
+    // NODOS: RANURAS DE MAGIA MODULAR (Paso 4.2)
+    // =========================================================================
+    public static final ResourceLocation NODE_CUSTOM_SPELL_1        = new ResourceLocation(ModRpg.MODID, "custom_spell_1");
+    public static final ResourceLocation NODE_CUSTOM_SPELL_2        = new ResourceLocation(ModRpg.MODID, "custom_spell_2");
+    public static final ResourceLocation NODE_CUSTOM_SPELL_3        = new ResourceLocation(ModRpg.MODID, "custom_spell_3");
+    public static final ResourceLocation NODE_CUSTOM_SPELL_4        = new ResourceLocation(ModRpg.MODID, "custom_spell_4");
+
+    // =========================================================================
+    // NODOS: MOVILIDAD
+    // =========================================================================
     public static final ResourceLocation NODE_LIGHT_STEP            = new ResourceLocation(ModRpg.MODID, "mobility_light_step");
     public static final ResourceLocation NODE_STEP_BOOST_MOBILITY_20= new ResourceLocation(ModRpg.MODID, "mobility_step_boost_20");
     public static final ResourceLocation NODE_DASH                  = new ResourceLocation(ModRpg.MODID, "mobility_dash");
@@ -77,12 +99,17 @@ public class SkillRegistry {
     public static final ResourceLocation NODE_FLURRY_OF_STRIKES     = new ResourceLocation(ModRpg.MODID, "mobility_flurry_of_strikes");
     public static final ResourceLocation NODE_IMPACT_JUMP           = new ResourceLocation(ModRpg.MODID, "mobility_impact_jump");
 
-    // Defensa
+    // =========================================================================
+    // NODOS: DEFENSA
+    // =========================================================================
     public static final ResourceLocation NODE_STONE_SKIN            = new ResourceLocation(ModRpg.MODID, "defense_stone_skin");
     public static final ResourceLocation NODE_PUSH_AND_WEAR         = new ResourceLocation(ModRpg.MODID, "defense_push_and_wear");
     public static final ResourceLocation NODE_IRON_STRENGTH         = new ResourceLocation(ModRpg.MODID, "defense_iron_strength");
     public static final ResourceLocation NODE_IRON_FORTRESS         = new ResourceLocation(ModRpg.MODID, "defense_iron_fortress");
 
+    // =========================================================================
+    // CONTENEDORES Y REGISTRO EN MEMORIA
+    // =========================================================================
     private static final Map<ResourceLocation, SkillBranch> BRANCHES = new LinkedHashMap<>();
     private static final Map<ResourceLocation, SkillNode> NODES = new LinkedHashMap<>();
 
@@ -110,6 +137,9 @@ public class SkillRegistry {
         return Collections.unmodifiableCollection(NODES.values());
     }
 
+    // =========================================================================
+    // INICIALIZACIÓN DEL ÁRBOL
+    // =========================================================================
     public static void init() {
         BRANCHES.clear();
         NODES.clear();
@@ -259,6 +289,29 @@ public class SkillRegistry {
         register(new SummonWolvesSkill()
                 .addRequirement(SkillRequirement.branchLevel(BRANCH_MAGIC, 16))
                 .setVisuals(-300, 80, new ItemStack(Items.BONE), NODE_BEE_SWARM));
+
+        // ---------------------------------------------------------------------
+        // RANURAS DE HECHIZOS MODULARES (Paso 4.2)
+        // ---------------------------------------------------------------------
+        // Ranura 1: Accesible temprano (Magia Nivel 1)
+        register(new CustomSpellSkillNode(NODE_CUSTOM_SPELL_1, 0)
+                .addRequirement(SkillRequirement.branchLevel(BRANCH_MAGIC, 1))
+                .setVisuals(-40, -180, new ItemStack(Items.WRITABLE_BOOK)));
+
+        // Ranura 2: Magia Nivel 10
+        register(new CustomSpellSkillNode(NODE_CUSTOM_SPELL_2, 1)
+                .addRequirement(SkillRequirement.branchLevel(BRANCH_MAGIC, 10))
+                .setVisuals(-20, -220, new ItemStack(Items.WRITABLE_BOOK), NODE_CUSTOM_SPELL_1));
+
+        // Ranura 3: Magia Nivel 25
+        register(new CustomSpellSkillNode(NODE_CUSTOM_SPELL_3, 2)
+                .addRequirement(SkillRequirement.branchLevel(BRANCH_MAGIC, 25))
+                .setVisuals(0, -260, new ItemStack(Items.WRITABLE_BOOK), NODE_CUSTOM_SPELL_2));
+
+        // Ranura 4: Magia Nivel 50
+        register(new CustomSpellSkillNode(NODE_CUSTOM_SPELL_4, 3)
+                .addRequirement(SkillRequirement.branchLevel(BRANCH_MAGIC, 50))
+                .setVisuals(20, -300, new ItemStack(Items.WRITABLE_BOOK), NODE_CUSTOM_SPELL_3));
 
         // 6. RAMA MOVILIDAD (Sprint 4)
         register(new LightStepSkill()

@@ -2,6 +2,7 @@ package com.example.modrpg.skills;
 
 import com.example.modrpg.skills.data.SkillNode;
 import com.example.modrpg.skills.data.SkillRegistry;
+import com.example.modrpg.skills.magic.modular.CraftedSpell;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.StringTag;
@@ -13,6 +14,7 @@ import java.util.*;
 public class PlayerSkills {
 
     public static final int MAX_LOADOUT_SLOTS = 8;
+    public static final int MAX_SPELL_MEMORY = 4;
     public static final float BASE_MANA_REGEN_PER_SEC = 2.0f;
 
     // =========================================================================
@@ -28,6 +30,9 @@ public class PlayerSkills {
     private final Set<ResourceLocation> activeToggles = new HashSet<>();
     private boolean togglesForceDeactivated = false;
 
+    // Memoria de Hechizos Modulares (4 ranuras)
+    private final CraftedSpell[] spellMemory = new CraftedSpell[MAX_SPELL_MEMORY];
+
     // Habilidad actualmente seleccionada en mano para ejecutar con [R]
     private ResourceLocation selectedSkill = null;
 
@@ -40,6 +45,26 @@ public class PlayerSkills {
     private int dashIFrameTicks = 0;
 
     public PlayerSkills() {}
+
+    // =========================================================================
+    // MEMORIA DE HECHIZOS MODULARES
+    // =========================================================================
+    public CraftedSpell getSpell(int slot) {
+        if (slot >= 0 && slot < MAX_SPELL_MEMORY) {
+            return spellMemory[slot];
+        }
+        return null;
+    }
+
+    public void setSpell(int slot, CraftedSpell spell) {
+        if (slot >= 0 && slot < MAX_SPELL_MEMORY) {
+            spellMemory[slot] = spell;
+        }
+    }
+
+    public CraftedSpell[] getAllSpells() {
+        return spellMemory;
+    }
 
     // =========================================================================
     // GESTIÓN DE PASIVAS CONMUTABLES (TOGGLE / POSTURAS)
@@ -88,14 +113,7 @@ public class PlayerSkills {
             selectedSkill = null;
         }
         if (selectedSkill == null && !equippedSkills.isEmpty()) {
-            for (ResourceLocation id : equippedSkills) {
-                SkillNode node = SkillRegistry.get(id);
-                // Si es null (pruebas unitarias) o es activa/definitiva, auto-seleccionarla
-                if (node == null || node.getType() == SkillNode.NodeType.ACTIVE_ABILITY || node.getType() == SkillNode.NodeType.ULTIMATE) {
-                    selectedSkill = id;
-                    break;
-                }
-            }
+            selectedSkill = equippedSkills.get(0);
         }
         return selectedSkill;
     }
@@ -143,7 +161,7 @@ public class PlayerSkills {
         tickCooldowns();
         tickIFrames();
 
-        // 1. Drenaje de Maná por Posturas Conmutables activas
+        // 1. Drenaje de Maná por Posturas activas
         if (!activeToggles.isEmpty()) {
             float totalDrainPerTick = 0.0f;
             for (ResourceLocation toggleId : activeToggles) {
@@ -157,7 +175,6 @@ public class PlayerSkills {
                 if (this.currentMana >= totalDrainPerTick) {
                     this.currentMana -= totalDrainPerTick;
                 } else {
-                    // Maná agotado: desactivar posturas de drenaje
                     this.currentMana = 0.0f;
                     activeToggles.removeIf(id -> {
                         SkillNode node = SkillRegistry.get(id);
@@ -168,7 +185,7 @@ public class PlayerSkills {
             }
         }
 
-        // 2. Regeneración natural de maná
+        // 2. Regeneración natural
         float regenPerTick = getManaRegenPerSecond() / 20.0f;
         restoreMana(regenPerTick);
     }
@@ -201,16 +218,9 @@ public class PlayerSkills {
 
     public void unlockNode(ResourceLocation nodeId) {
         unlockedNodes.add(nodeId);
-        SkillNode node = SkillRegistry.get(nodeId);
-
-        // Si el nodo es null (IDs genéricos de tests unitarios) o es compatible con la rueda:
-        boolean canEquip = (node == null) || (node.getType() == SkillNode.NodeType.ACTIVE_ABILITY ||
-                node.getType() == SkillNode.NodeType.ULTIMATE ||
-                node.getType() == SkillNode.NodeType.PASSIVE_TOGGLE);
-
-        if (canEquip && equippedSkills.size() < MAX_LOADOUT_SLOTS && !equippedSkills.contains(nodeId)) {
+        if (equippedSkills.size() < MAX_LOADOUT_SLOTS && !equippedSkills.contains(nodeId)) {
             equippedSkills.add(nodeId);
-            if (selectedSkill == null && (node == null || node.getType() != SkillNode.NodeType.PASSIVE_TOGGLE)) {
+            if (selectedSkill == null) {
                 selectedSkill = nodeId;
             }
         }
@@ -245,6 +255,9 @@ public class PlayerSkills {
             equippedSkills.set(slot, skillId);
         } else {
             equippedSkills.add(skillId);
+        }
+        if (selectedSkill == null) {
+            selectedSkill = skillId;
         }
         return true;
     }
@@ -337,14 +350,14 @@ public class PlayerSkills {
     }
 
     // =========================================================================
-    // SINCRONIZACIÓN Y CLONACIÓN (Sobrecargas de compatibilidad)
+    // SINCRONIZACIÓN Y CLONACIÓN
     // =========================================================================
     public void replaceAll(Map<ResourceLocation, Integer> branches,
                            Set<ResourceLocation> nodes,
                            Map<ResourceLocation, Integer> counters,
                            Map<ResourceLocation, Integer> cds,
                            boolean ultCharged) {
-        this.replaceAll(branches, nodes, counters, cds, ultCharged, Collections.emptyList(), this.currentMana, this.getMaxMana(), null, Collections.emptySet());
+        this.replaceAll(branches, nodes, counters, cds, ultCharged, Collections.emptyList(), this.currentMana, this.getMaxMana(), null, Collections.emptySet(), new CraftedSpell[4]);
     }
 
     public void replaceAll(Map<ResourceLocation, Integer> branches,
@@ -353,18 +366,7 @@ public class PlayerSkills {
                            Map<ResourceLocation, Integer> cds,
                            boolean ultCharged,
                            List<ResourceLocation> equipped) {
-        this.replaceAll(branches, nodes, counters, cds, ultCharged, equipped, this.currentMana, this.getMaxMana(), null, Collections.emptySet());
-    }
-
-    public void replaceAll(Map<ResourceLocation, Integer> branches,
-                           Set<ResourceLocation> nodes,
-                           Map<ResourceLocation, Integer> counters,
-                           Map<ResourceLocation, Integer> cds,
-                           boolean ultCharged,
-                           List<ResourceLocation> equipped,
-                           float curMana,
-                           float mXpMana) {
-        this.replaceAll(branches, nodes, counters, cds, ultCharged, equipped, curMana, mXpMana, null, Collections.emptySet());
+        this.replaceAll(branches, nodes, counters, cds, ultCharged, equipped, this.currentMana, this.getMaxMana(), null, Collections.emptySet(), new CraftedSpell[4]);
     }
 
     public void replaceAll(Map<ResourceLocation, Integer> branches,
@@ -376,7 +378,7 @@ public class PlayerSkills {
                            float curMana,
                            float mXpMana,
                            ResourceLocation selected) {
-        this.replaceAll(branches, nodes, counters, cds, ultCharged, equipped, curMana, mXpMana, selected, Collections.emptySet());
+        this.replaceAll(branches, nodes, counters, cds, ultCharged, equipped, curMana, mXpMana, selected, Collections.emptySet(), new CraftedSpell[4]);
     }
 
     public void replaceAll(Map<ResourceLocation, Integer> branches,
@@ -389,6 +391,20 @@ public class PlayerSkills {
                            float mXpMana,
                            ResourceLocation selected,
                            Set<ResourceLocation> toggles) {
+        this.replaceAll(branches, nodes, counters, cds, ultCharged, equipped, curMana, mXpMana, selected, toggles, new CraftedSpell[4]);
+    }
+
+    public void replaceAll(Map<ResourceLocation, Integer> branches,
+                           Set<ResourceLocation> nodes,
+                           Map<ResourceLocation, Integer> counters,
+                           Map<ResourceLocation, Integer> cds,
+                           boolean ultCharged,
+                           List<ResourceLocation> equipped,
+                           float curMana,
+                           float mXpMana,
+                           ResourceLocation selected,
+                           Set<ResourceLocation> toggles,
+                           CraftedSpell[] spells) {
         this.branchLevels.clear();
         this.branchLevels.putAll(branches);
 
@@ -412,6 +428,12 @@ public class PlayerSkills {
 
         this.activeToggles.clear();
         this.activeToggles.addAll(toggles);
+
+        if (spells != null) {
+            for (int i = 0; i < MAX_SPELL_MEMORY; i++) {
+                this.spellMemory[i] = (i < spells.length) ? spells[i] : null;
+            }
+        }
     }
 
     public void copyFrom(PlayerSkills source) {
@@ -432,6 +454,10 @@ public class PlayerSkills {
 
         this.activeToggles.clear();
         this.activeToggles.addAll(source.activeToggles);
+
+        for (int i = 0; i < MAX_SPELL_MEMORY; i++) {
+            this.spellMemory[i] = source.spellMemory[i];
+        }
 
         this.currentMana = source.currentMana;
         this.maxMana = source.maxMana;
@@ -468,6 +494,17 @@ public class PlayerSkills {
         ListTag togglesTag = new ListTag();
         activeToggles.forEach(id -> togglesTag.add(StringTag.valueOf(id.toString())));
         nbt.put("ActiveToggles", togglesTag);
+
+        // Guardar Memoria de Hechizos
+        ListTag spellsTag = new ListTag();
+        for (int i = 0; i < MAX_SPELL_MEMORY; i++) {
+            if (spellMemory[i] != null) {
+                CompoundTag spellEntry = spellMemory[i].toNBT();
+                spellEntry.putInt("Slot", i);
+                spellsTag.add(spellEntry);
+            }
+        }
+        nbt.put("SpellMemory", spellsTag);
 
         if (selectedSkill != null) {
             nbt.putString("SelectedSkill", selectedSkill.toString());
@@ -532,6 +569,19 @@ public class PlayerSkills {
                 ResourceLocation rl = ResourceLocation.tryParse(togglesTag.getString(i));
                 if (rl != null && isNodeUnlocked(rl)) {
                     activeToggles.add(rl);
+                }
+            }
+        }
+
+        // Cargar Memoria de Hechizos
+        for (int i = 0; i < MAX_SPELL_MEMORY; i++) spellMemory[i] = null;
+        if (nbt.contains("SpellMemory", Tag.TAG_LIST)) {
+            ListTag spellsTag = nbt.getList("SpellMemory", Tag.TAG_COMPOUND);
+            for (int i = 0; i < spellsTag.size(); i++) {
+                CompoundTag spellEntry = spellsTag.getCompound(i);
+                int slot = spellEntry.getInt("Slot");
+                if (slot >= 0 && slot < MAX_SPELL_MEMORY) {
+                    spellMemory[slot] = CraftedSpell.fromNBT(spellEntry);
                 }
             }
         }

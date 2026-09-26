@@ -2,6 +2,8 @@ package com.example.modrpg.networking;
 
 import com.example.modrpg.client.ClientPacketHandler;
 import com.example.modrpg.skills.PlayerSkills;
+import com.example.modrpg.skills.magic.modular.CraftedSpell;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraftforge.api.distmarker.Dist;
@@ -23,6 +25,7 @@ public class PacketSyncSkillsToClient {
     public final float maxMana;
     public final ResourceLocation selectedSkill;
     public final Set<ResourceLocation> activeToggles;
+    public final CraftedSpell[] spells;
 
     public PacketSyncSkillsToClient(PlayerSkills skills) {
         this.branchLevels = new HashMap<>(skills.getAllBranchLevels());
@@ -35,6 +38,7 @@ public class PacketSyncSkillsToClient {
         this.maxMana = skills.getMaxMana();
         this.selectedSkill = skills.getSelectedSkill();
         this.activeToggles = new HashSet<>(skills.getActiveToggles());
+        this.spells = skills.getAllSpells();
     }
 
     public PacketSyncSkillsToClient(Map<ResourceLocation, Integer> branchLevels,
@@ -46,7 +50,8 @@ public class PacketSyncSkillsToClient {
                                     float currentMana,
                                     float maxMana,
                                     ResourceLocation selectedSkill,
-                                    Set<ResourceLocation> activeToggles) {
+                                    Set<ResourceLocation> activeToggles,
+                                    CraftedSpell[] spells) {
         this.branchLevels = branchLevels;
         this.unlockedNodes = unlockedNodes;
         this.practiceCounters = practiceCounters;
@@ -57,6 +62,7 @@ public class PacketSyncSkillsToClient {
         this.maxMana = maxMana;
         this.selectedSkill = selectedSkill;
         this.activeToggles = activeToggles;
+        this.spells = spells;
     }
 
     public static void encode(PacketSyncSkillsToClient msg, FriendlyByteBuf buf) {
@@ -75,6 +81,15 @@ public class PacketSyncSkillsToClient {
         }
 
         buf.writeCollection(msg.activeToggles, FriendlyByteBuf::writeResourceLocation);
+
+        // Guardar los 4 slots de hechizos
+        for (int i = 0; i < 4; i++) {
+            boolean hasSpell = (msg.spells != null && i < msg.spells.length && msg.spells[i] != null);
+            buf.writeBoolean(hasSpell);
+            if (hasSpell) {
+                buf.writeNbt(msg.spells[i].toNBT());
+            }
+        }
     }
 
     public static PacketSyncSkillsToClient decode(FriendlyByteBuf buf) {
@@ -89,7 +104,15 @@ public class PacketSyncSkillsToClient {
         ResourceLocation selectedSkill = buf.readBoolean() ? buf.readResourceLocation() : null;
         Set<ResourceLocation> activeToggles = buf.readCollection(HashSet::new, FriendlyByteBuf::readResourceLocation);
 
-        return new PacketSyncSkillsToClient(branchLevels, unlockedNodes, practiceCounters, cooldowns, ultimateCharged, equippedSkills, currentMana, maxMana, selectedSkill, activeToggles);
+        CraftedSpell[] spells = new CraftedSpell[4];
+        for (int i = 0; i < 4; i++) {
+            if (buf.readBoolean()) {
+                CompoundTag tag = buf.readNbt();
+                spells[i] = (tag != null) ? CraftedSpell.fromNBT(tag) : null;
+            }
+        }
+
+        return new PacketSyncSkillsToClient(branchLevels, unlockedNodes, practiceCounters, cooldowns, ultimateCharged, equippedSkills, currentMana, maxMana, selectedSkill, activeToggles, spells);
     }
 
     public static void handle(PacketSyncSkillsToClient msg, Supplier<NetworkEvent.Context> ctx) {

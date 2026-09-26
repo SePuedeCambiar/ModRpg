@@ -1,6 +1,11 @@
 package com.example.modrpg.skills;
 
+import com.example.modrpg.skills.magic.modular.CraftedSpell;
+import com.example.modrpg.skills.magic.modular.SpellElement;
+import com.example.modrpg.skills.magic.modular.SpellShape;
+import com.example.modrpg.skills.magic.modular.SpellTiming;
 import com.example.modrpg.skills.nodes.melee.VitalCleaveSkill;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.ResourceLocation;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -96,14 +101,24 @@ class PlayerSkillsTest {
     @Test
     @DisplayName("Simulación de sincronización completa y decremento de cooldown en el cliente")
     void testClientCooldownSyncAndTick() {
-        // 1. Servidor aplica cooldown de 60 ticks y selecciona la habilidad
+        // 1. Servidor aplica cooldown de 60 ticks, selecciona habilidad y guarda un hechizo
         PlayerSkills serverSkills = new PlayerSkills();
         serverSkills.unlockNode(skillTornado);
         serverSkills.setCooldown(skillTornado, 60);
         serverSkills.setSelectedSkill(skillTornado);
+
+        CraftedSpell spell = new CraftedSpell(
+                "Rayo Veloz",
+                SpellElement.LIGHTNING,
+                SpellShape.PROJECTILE,
+                SpellTiming.RAPID_FIRE,
+                1
+        );
+        serverSkills.setSpell(0, spell);
+
         assertTrue(serverSkills.hasCooldown(skillTornado));
 
-        // 2. Cliente recibe los datos completos sincronizados (10 argumentos)
+        // 2. Cliente recibe los datos completos sincronizados (11 argumentos)
         PlayerSkills clientSkills = new PlayerSkills();
         clientSkills.replaceAll(
                 serverSkills.getAllBranchLevels(),
@@ -115,12 +130,15 @@ class PlayerSkillsTest {
                 serverSkills.getCurrentMana(),
                 serverSkills.getMaxMana(),
                 serverSkills.getSelectedSkill(),
-                serverSkills.getActiveToggles()
+                serverSkills.getActiveToggles(),
+                serverSkills.getAllSpells()
         );
 
         assertTrue(clientSkills.hasCooldown(skillTornado));
         assertEquals(60, clientSkills.getCooldown(skillTornado));
-        assertEquals(skillTornado, clientSkills.getSelectedSkill(), "La habilidad seleccionada debe llegar al cliente sincronizada");
+        assertEquals(skillTornado, clientSkills.getSelectedSkill(), "La habilidad seleccionada debe llegar al cliente");
+        assertNotNull(clientSkills.getSpell(0), "El hechizo guardado en la memoria debe sincronizarse al cliente");
+        assertEquals("Rayo Veloz", clientSkills.getSpell(0).getName());
 
         // 3. Simulamos 60 ticks transcurridos en el cliente
         for (int tick = 0; tick < 60; tick++) {
@@ -213,5 +231,64 @@ class PlayerSkillsTest {
 
         // Daño masivo (Jefe modded de 1000 PV -> 100.0 de daño) -> Debe topar en 400 ticks (20.0s)
         assertEquals(400, VitalCleaveSkill.calculateCooldown(100.0f));
+    }
+
+    @Test
+    @DisplayName("El Motor de Magia Modular debe calcular fórmulas coherentes y serializar NBT")
+    void testModularSpellFormulasAndNBT() {
+        CraftedSpell spell = new CraftedSpell(
+                "Metralleta de Rayo",
+                SpellElement.LIGHTNING,
+                SpellShape.PROJECTILE,
+                SpellTiming.RAPID_FIRE,
+                1
+        );
+
+        // Fórmulas matemáticas:
+        // Daño: 7.0 * 1.0 (Projectile) * 0.35 (Rapid) = 2.45
+        assertEquals(2.45f, spell.calculateDamage(null), 0.05f);
+
+        // Cooldown: 50 * 1.0 * 0.15 = 7.5 -> 7 ticks (~0.35 segundos)
+        assertEquals(7, spell.calculateCooldownTicks());
+
+        // Coste de maná: 22.0 * 1.0 * 0.35 = 7.7 maná por disparo
+        assertEquals(7.7f, spell.calculateManaCost(), 0.05f);
+
+        // Serialización y reconstrucción en NBT
+        CompoundTag nbt = spell.toNBT();
+        CraftedSpell reconstructed = CraftedSpell.fromNBT(nbt);
+
+        assertEquals("Metralleta de Rayo", reconstructed.getName());
+        assertEquals(SpellElement.LIGHTNING, reconstructed.getElement());
+        assertEquals(SpellShape.PROJECTILE, reconstructed.getShape());
+        assertEquals(SpellTiming.RAPID_FIRE, reconstructed.getTiming());
+        assertEquals(1, reconstructed.getPowerLevel());
+    }
+
+    @Test
+    @DisplayName("La memoria de hechizos debe persistir y sincronizar las 4 ranuras")
+    void testSpellMemoryStorageAndSync() {
+        CraftedSpell spell = new CraftedSpell(
+                "Orbe de Fuego Pesado",
+                SpellElement.FIRE,
+                SpellShape.PROJECTILE,
+                SpellTiming.HEAVY_BURST,
+                1
+        );
+
+        skills.setSpell(0, spell);
+        assertNotNull(skills.getSpell(0));
+        assertEquals("Orbe de Fuego Pesado", skills.getSpell(0).getName());
+        assertNull(skills.getSpell(1)); // Ranura 2 vacía
+
+        // Test de persistencia NBT
+        CompoundTag nbt = new CompoundTag();
+        skills.saveNBTData(nbt);
+
+        PlayerSkills loaded = new PlayerSkills();
+        loaded.loadNBTData(nbt);
+        assertNotNull(loaded.getSpell(0));
+        assertEquals("Orbe de Fuego Pesado", loaded.getSpell(0).getName());
+        assertNull(loaded.getSpell(1));
     }
 }

@@ -1,6 +1,7 @@
 package com.example.modrpg.events;
 
 import com.example.modrpg.ModRpg;
+import com.example.modrpg.ai.EnemyRpgManager;
 import com.example.modrpg.commands.RpgCommands;
 import com.example.modrpg.networking.ModMessages;
 import com.example.modrpg.networking.PacketSyncMana;
@@ -23,6 +24,7 @@ import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.monster.Monster;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.AbstractArrow;
 import net.minecraft.world.phys.AABB;
@@ -178,7 +180,7 @@ public class ModEvents {
             // CASO A: Salto con Impacto (Ground Slam) -> Detona 150 de daño en área al caer
             if (player.getTags().contains(ImpactJumpSkill.TAG_GROUND_SLAM)) {
                 player.removeTag(ImpactJumpSkill.TAG_GROUND_SLAM);
-                event.setCanceled(true); // Cancela el daño de caída al jugador
+                event.setCanceled(true);
 
                 AABB blastArea = player.getBoundingBox().inflate(5.5, 2.0, 5.5);
                 List<LivingEntity> enemies = level.getEntitiesOfClass(
@@ -269,7 +271,7 @@ public class ModEvents {
                     }
                 }
 
-                // Despacha a todos los nodos desbloqueados (las posturas conmutables verifican si están activas internamente)
+                // Despacha a todos los nodos desbloqueados
                 for (ResourceLocation nodeId : skills.getUnlockedNodes()) {
                     SkillNode node = SkillRegistry.get(nodeId);
                     if (node != null) {
@@ -295,6 +297,14 @@ public class ModEvents {
                     }
                 }
             });
+        }
+    }
+
+    // 8. Inicialización de IA y Builds de Mobs (Paso 5)
+    @SubscribeEvent
+    public static void onMonsterSpawn(EntityJoinLevelEvent event) {
+        if (!event.getLevel().isClientSide() && event.getEntity() instanceof Monster monster) {
+            EnemyRpgManager.tryInitializeMob(monster);
         }
     }
 }

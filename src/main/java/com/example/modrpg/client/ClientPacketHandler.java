@@ -21,7 +21,8 @@ public class ClientPacketHandler {
                         msg.currentMana,
                         msg.maxMana,
                         msg.selectedSkill,
-                        msg.activeToggles
+                        msg.activeToggles,
+                        msg.spells
                 );
             });
         }
