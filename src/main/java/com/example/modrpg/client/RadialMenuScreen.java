@@ -1,7 +1,7 @@
 package com.example.modrpg.client;
 
 import com.example.modrpg.networking.ModMessages;
-import com.example.modrpg.networking.PacketCastSkill;
+import com.example.modrpg.networking.PacketSelectSkill;
 import com.example.modrpg.skills.PlayerSkills;
 import com.example.modrpg.skills.PlayerSkillsProvider;
 import com.example.modrpg.skills.data.SkillNode;
@@ -15,6 +15,7 @@ import net.minecraft.world.entity.player.Player;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 public class RadialMenuScreen extends Screen {
 
@@ -81,6 +82,7 @@ public class RadialMenuScreen extends Screen {
 
         SkillNode hoveredSkill = null;
         int total = activeSkills.size();
+        ResourceLocation currentlySelected = skills.getSelectedSkill();
 
         for (int i = 0; i < total; i++) {
             SkillNode node = activeSkills.get(i);
@@ -94,11 +96,14 @@ public class RadialMenuScreen extends Screen {
                 hoveredSkill = node;
             }
 
+            boolean isCurrentSelection = Objects.equals(node.getId(), currentlySelected);
             boolean onCooldown = skills.hasCooldown(node.getId());
             boolean enoughMana = skills.getCurrentMana() >= node.getManaCost();
 
             int borderColor;
-            if (onCooldown) {
+            if (isCurrentSelection) {
+                borderColor = 0xFF00FFFF; // Cyan brillante si está actualmente seleccionada para [R]
+            } else if (onCooldown) {
                 borderColor = 0xFFAA2222; // Rojo si está en enfriamiento
             } else if (!enoughMana) {
                 borderColor = 0xFF3366BB; // Azul oscuro si falta maná
@@ -106,8 +111,9 @@ public class RadialMenuScreen extends Screen {
                 borderColor = isHovered ? 0xFFFFFFFF : 0xFFDAA520; // Blanco si tiene cursor encima, dorado por defecto
             }
 
-            // Fondo y marco del badge
-            guiGraphics.fill(nodeX - 1, nodeY - 1, nodeX + BADGE_SIZE + 1, nodeY + BADGE_SIZE + 1, borderColor);
+            // Fondo y marco del badge (hacerlo 1 pixel más grueso si está seleccionada)
+            int borderThickness = isCurrentSelection ? 2 : 1;
+            guiGraphics.fill(nodeX - borderThickness, nodeY - borderThickness, nodeX + BADGE_SIZE + borderThickness, nodeY + BADGE_SIZE + borderThickness, borderColor);
             guiGraphics.fill(nodeX, nodeY, nodeX + BADGE_SIZE, nodeY + BADGE_SIZE, isHovered ? 0xFF2A2A38 : 0xFF14141E);
             guiGraphics.renderItem(node.getIcon(), nodeX + (BADGE_SIZE - 16) / 2, nodeY + (BADGE_SIZE - 16) / 2);
 
@@ -119,25 +125,31 @@ public class RadialMenuScreen extends Screen {
 
         // Información en el centro de la rueda
         if (hoveredSkill != null) {
-            guiGraphics.drawCenteredString(this.font, "§6§l" + hoveredSkill.getDisplayName().getString(), centerX, centerY - 18, 0xFFFFFF);
+            boolean isCurrentSelection = Objects.equals(hoveredSkill.getId(), currentlySelected);
+            String title = hoveredSkill.getDisplayName().getString();
+            guiGraphics.drawCenteredString(this.font, (isCurrentSelection ? "§b⭐ " : "§6") + "§l" + title, centerX, centerY - 20, 0xFFFFFF);
 
             boolean onCooldown = skills.hasCooldown(hoveredSkill.getId());
             boolean enoughMana = skills.getCurrentMana() >= hoveredSkill.getManaCost();
 
             if (onCooldown) {
                 int seg = (skills.getCooldown(hoveredSkill.getId()) / 20) + 1;
-                guiGraphics.drawCenteredString(this.font, "§c⏳ Enfriamiento: " + seg + "s", centerX, centerY - 4, 0xFF8888);
+                guiGraphics.drawCenteredString(this.font, "§c⏳ Enfriamiento: " + seg + "s", centerX, centerY - 6, 0xFF8888);
             } else if (!enoughMana) {
-                guiGraphics.drawCenteredString(this.font, "§9⚡ Falta Maná (Requiere: " + (int)hoveredSkill.getManaCost() + ")", centerX, centerY - 4, 0x88AAFF);
+                guiGraphics.drawCenteredString(this.font, "§9⚡ Falta Maná (Requiere: " + (int) hoveredSkill.getManaCost() + ")", centerX, centerY - 6, 0x88AAFF);
             } else {
-                guiGraphics.drawCenteredString(this.font, "§a✔ Listo para usar (Clic izquierdo)", centerX, centerY - 4, 0x88FF88);
+                if (isCurrentSelection) {
+                    guiGraphics.drawCenteredString(this.font, "§b[EQUIPADA EN MANO - DISPARA CON R]", centerX, centerY - 6, 0x88FFFF);
+                } else {
+                    guiGraphics.drawCenteredString(this.font, "§aClic Izquierdo: Seleccionar para usar", centerX, centerY - 6, 0x88FF88);
+                }
             }
 
             if (hoveredSkill.getManaCost() > 0) {
-                guiGraphics.drawCenteredString(this.font, "§bCoste: " + (int)hoveredSkill.getManaCost() + " Maná", centerX, centerY + 8, 0xAAAAAA);
+                guiGraphics.drawCenteredString(this.font, "§bCoste: " + (int) hoveredSkill.getManaCost() + " Maná", centerX, centerY + 8, 0xAAAAAA);
             }
         } else {
-            guiGraphics.drawCenteredString(this.font, "§7Selecciona una habilidad (" + total + "/" + PlayerSkills.MAX_LOADOUT_SLOTS + ")", centerX, centerY - 6, 0xAAAAAA);
+            guiGraphics.drawCenteredString(this.font, "§7Selecciona una habilidad para tu tecla [R]", centerX, centerY - 6, 0xAAAAAA);
         }
 
         super.render(guiGraphics, mouseX, mouseY, partialTick);
@@ -157,7 +169,14 @@ public class RadialMenuScreen extends Screen {
                 int nodeY = (int) (centerY + Math.sin(angle) * RADIUS) - (BADGE_SIZE / 2);
 
                 if (mouseX >= nodeX && mouseX <= nodeX + BADGE_SIZE && mouseY >= nodeY && mouseY <= nodeY + BADGE_SIZE) {
-                    ModMessages.sendToServer(new PacketCastSkill(node.getId()));
+                    // Seleccionar la habilidad para la tecla [R]
+                    ModMessages.sendToServer(new PacketSelectSkill(node.getId()));
+
+                    Player player = Minecraft.getInstance().player;
+                    if (player != null) {
+                        player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(s -> s.setSelectedSkill(node.getId()));
+                    }
+
                     this.onClose();
                     return true;
                 }

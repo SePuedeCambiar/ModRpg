@@ -93,14 +93,16 @@ class PlayerSkillsTest {
     }
 
     @Test
-    @DisplayName("Simulación de sincronización y decremento de cooldown en el cliente")
+    @DisplayName("Simulación de sincronización completa y decremento de cooldown en el cliente")
     void testClientCooldownSyncAndTick() {
-        // 1. Servidor aplica cooldown de 60 ticks
+        // 1. Servidor aplica cooldown de 60 ticks y selecciona la habilidad
         PlayerSkills serverSkills = new PlayerSkills();
+        serverSkills.unlockNode(skillTornado);
         serverSkills.setCooldown(skillTornado, 60);
+        serverSkills.setSelectedSkill(skillTornado);
         assertTrue(serverSkills.hasCooldown(skillTornado));
 
-        // 2. Cliente recibe los datos y actualiza limpiamente (6 argumentos con getEquippedSkills())
+        // 2. Cliente recibe los datos completos (9 argumentos actualizados)
         PlayerSkills clientSkills = new PlayerSkills();
         clientSkills.replaceAll(
                 serverSkills.getAllBranchLevels(),
@@ -108,11 +110,15 @@ class PlayerSkillsTest {
                 serverSkills.getAllPracticeCounters(),
                 serverSkills.getAllCooldowns(),
                 serverSkills.isUltimateCharged(),
-                serverSkills.getEquippedSkills() // <-- Corregido el 6to argumento
+                serverSkills.getEquippedSkills(),
+                serverSkills.getCurrentMana(),
+                serverSkills.getMaxMana(),
+                serverSkills.getSelectedSkill()
         );
 
         assertTrue(clientSkills.hasCooldown(skillTornado));
         assertEquals(60, clientSkills.getCooldown(skillTornado));
+        assertEquals(skillTornado, clientSkills.getSelectedSkill(), "La habilidad seleccionada debe llegar al cliente sincronizada");
 
         // 3. Simulamos 60 ticks transcurridos en el cliente
         for (int tick = 0; tick < 60; tick++) {
@@ -122,6 +128,7 @@ class PlayerSkillsTest {
         assertFalse(clientSkills.hasCooldown(skillTornado), "El cooldown debe expirar tras 60 ticks en el cliente");
         assertEquals(0, clientSkills.getCooldown(skillTornado));
     }
+
     @Test
     @DisplayName("El maná no debe superar el máximo ni caer por debajo de cero")
     void testManaBoundsAndConsumption() {
@@ -156,5 +163,19 @@ class PlayerSkillsTest {
         // Nivel 100 de magia: +500% (6x base) -> 12.0 maná/segundo
         skills.setBranchLevel(branchMagic, 100);
         assertEquals(12.0f, skills.getManaRegenPerSecond(), 0.01f);
+    }
+
+    @Test
+    @DisplayName("La selección de habilidad debe auto-asignar la primera equipada si está vacía")
+    void testSelectedSkillAutoFallback() {
+        ResourceLocation skillA = new ResourceLocation("modrpg", "skill_a");
+        skills.unlockNode(skillA);
+
+        // Al desbloquear, se equipa y se vuelve la seleccionada automáticamente
+        assertEquals(skillA, skills.getSelectedSkill());
+
+        // Si se desequipa, debe volver a null
+        skills.unequipSkill(0);
+        assertNull(skills.getSelectedSkill());
     }
 }

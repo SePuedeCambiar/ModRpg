@@ -12,7 +12,7 @@ import java.util.*;
 public class PlayerSkills {
 
     public static final int MAX_LOADOUT_SLOTS = 8;
-    public static final float BASE_MANA_REGEN_PER_SEC = 2.0f; // 2 puntos por segundo base
+    public static final float BASE_MANA_REGEN_PER_SEC = 2.0f;
 
     // =========================================================================
     // ESTRUCTURAS DE DATOS
@@ -22,6 +22,9 @@ public class PlayerSkills {
     private final Map<ResourceLocation, Integer> practiceCounters = new HashMap<>();
     private final Map<ResourceLocation, Integer> cooldowns = new HashMap<>();
     private final List<ResourceLocation> equippedSkills = new ArrayList<>();
+
+    // Habilidad actualmente seleccionada en mano para ejecutar con la tecla [R]
+    private ResourceLocation selectedSkill = null;
 
     // Sistema de Maná
     private float currentMana = 100.0f;
@@ -34,6 +37,25 @@ public class PlayerSkills {
     public PlayerSkills() {}
 
     // =========================================================================
+    // HABILIDAD ACTIVA SELECCIONADA
+    // =========================================================================
+    public ResourceLocation getSelectedSkill() {
+        // Fallback: Si no está desbloqueada o equipada, deseleccionarla
+        if (selectedSkill != null && (!isNodeUnlocked(selectedSkill) || !isSkillEquipped(selectedSkill))) {
+            selectedSkill = null;
+        }
+        // Si no hay ninguna seleccionada pero hay equipadas en la rueda, selecciona la primera
+        if (selectedSkill == null && !equippedSkills.isEmpty()) {
+            selectedSkill = equippedSkills.get(0);
+        }
+        return selectedSkill;
+    }
+
+    public void setSelectedSkill(ResourceLocation skillId) {
+        this.selectedSkill = skillId;
+    }
+
+    // =========================================================================
     // SISTEMA DE MANÁ Y REGENERACIÓN (+5% por nivel de Magia)
     // =========================================================================
     public float getCurrentMana() {
@@ -42,7 +64,7 @@ public class PlayerSkills {
 
     public float getMaxMana() {
         int magicLevel = getBranchLevel(SkillRegistry.BRANCH_MAGIC);
-        return 100.0f + (magicLevel * 2.0f); // Base 100 + 2 por nivel (hasta 300)
+        return 100.0f + (magicLevel * 2.0f);
     }
 
     public void setMana(float mana) {
@@ -62,24 +84,16 @@ public class PlayerSkills {
         return false;
     }
 
-    /**
-     * Tasa de regeneración por segundo sujeta al +5% por nivel de Magia.
-     * Nivel 0: 2.0/s | Nivel 10: 3.0/s (+50%) | Nivel 100: 12.0/s (+500%)
-     */
     public float getManaRegenPerSecond() {
         int magicLevel = getBranchLevel(SkillRegistry.BRANCH_MAGIC);
         float multiplier = 1.0f + (magicLevel * 0.05f);
         return BASE_MANA_REGEN_PER_SEC * multiplier;
     }
 
-    /**
-     * Decrementa cooldowns y regenera maná por cada tick del juego (20 ticks = 1 seg).
-     */
     public void tickServerSide() {
         tickCooldowns();
         tickIFrames();
 
-        // Regeneración fraccionada por tick
         float regenPerTick = getManaRegenPerSecond() / 20.0f;
         restoreMana(regenPerTick);
     }
@@ -114,12 +128,18 @@ public class PlayerSkills {
         unlockedNodes.add(nodeId);
         if (equippedSkills.size() < MAX_LOADOUT_SLOTS && !equippedSkills.contains(nodeId)) {
             equippedSkills.add(nodeId);
+            if (selectedSkill == null) {
+                selectedSkill = nodeId;
+            }
         }
     }
 
     public void lockNode(ResourceLocation nodeId) {
         unlockedNodes.remove(nodeId);
         equippedSkills.remove(nodeId);
+        if (Objects.equals(selectedSkill, nodeId)) {
+            selectedSkill = null;
+        }
     }
 
     public Set<ResourceLocation> getUnlockedNodes() {
@@ -143,12 +163,18 @@ public class PlayerSkills {
         } else {
             equippedSkills.add(skillId);
         }
+        if (selectedSkill == null) {
+            selectedSkill = skillId;
+        }
         return true;
     }
 
     public void unequipSkill(int slot) {
         if (slot >= 0 && slot < equippedSkills.size()) {
-            equippedSkills.remove(slot);
+            ResourceLocation removed = equippedSkills.remove(slot);
+            if (Objects.equals(selectedSkill, removed)) {
+                selectedSkill = null;
+            }
         }
     }
 
@@ -163,6 +189,9 @@ public class PlayerSkills {
             if (rl != null && !this.equippedSkills.contains(rl)) {
                 this.equippedSkills.add(rl);
             }
+        }
+        if (selectedSkill != null && !this.equippedSkills.contains(selectedSkill)) {
+            selectedSkill = null;
         }
     }
 
@@ -237,27 +266,11 @@ public class PlayerSkills {
                            Set<ResourceLocation> nodes,
                            Map<ResourceLocation, Integer> counters,
                            Map<ResourceLocation, Integer> cds,
-                           boolean ultCharged) {
-        this.replaceAll(branches, nodes, counters, cds, ultCharged, Collections.emptyList(), this.currentMana, this.getMaxMana());
-    }
-
-    public void replaceAll(Map<ResourceLocation, Integer> branches,
-                           Set<ResourceLocation> nodes,
-                           Map<ResourceLocation, Integer> counters,
-                           Map<ResourceLocation, Integer> cds,
-                           boolean ultCharged,
-                           List<ResourceLocation> equipped) {
-        this.replaceAll(branches, nodes, counters, cds, ultCharged, equipped, this.currentMana, this.getMaxMana());
-    }
-
-    public void replaceAll(Map<ResourceLocation, Integer> branches,
-                           Set<ResourceLocation> nodes,
-                           Map<ResourceLocation, Integer> counters,
-                           Map<ResourceLocation, Integer> cds,
                            boolean ultCharged,
                            List<ResourceLocation> equipped,
                            float curMana,
-                           float mXpMana) {
+                           float mXpMana,
+                           ResourceLocation selected) {
         this.branchLevels.clear();
         this.branchLevels.putAll(branches);
 
@@ -277,6 +290,7 @@ public class PlayerSkills {
 
         this.maxMana = mXpMana;
         this.currentMana = Math.max(0.0f, Math.min(curMana, mXpMana));
+        this.selectedSkill = selected;
     }
 
     public void copyFrom(PlayerSkills source) {
@@ -299,6 +313,7 @@ public class PlayerSkills {
         this.maxMana = source.maxMana;
 
         this.ultimateCharged = source.ultimateCharged;
+        this.selectedSkill = source.selectedSkill;
         this.dashIFrameTicks = 0;
     }
 
@@ -325,6 +340,10 @@ public class PlayerSkills {
         ListTag loadoutTag = new ListTag();
         equippedSkills.forEach(id -> loadoutTag.add(StringTag.valueOf(id.toString())));
         nbt.put("EquippedSkills", loadoutTag);
+
+        if (selectedSkill != null) {
+            nbt.putString("SelectedSkill", selectedSkill.toString());
+        }
 
         nbt.putFloat("CurrentMana", currentMana);
         nbt.putBoolean("UltimateCharged", ultimateCharged);
@@ -376,6 +395,12 @@ public class PlayerSkills {
                     equippedSkills.add(rl);
                 }
             }
+        }
+
+        if (nbt.contains("SelectedSkill", Tag.TAG_STRING)) {
+            this.selectedSkill = ResourceLocation.tryParse(nbt.getString("SelectedSkill"));
+        } else {
+            this.selectedSkill = null;
         }
 
         if (nbt.contains("CurrentMana", Tag.TAG_FLOAT)) {

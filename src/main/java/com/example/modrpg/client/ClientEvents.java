@@ -3,8 +3,12 @@ package com.example.modrpg.client;
 import com.example.modrpg.ModRpg;
 import com.example.modrpg.networking.ModMessages;
 import com.example.modrpg.networking.PacketCastSkill;
+import com.example.modrpg.skills.PlayerSkillsProvider;
 import com.example.modrpg.skills.data.SkillRegistry;
 import net.minecraft.client.Minecraft;
+import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.entity.player.Player;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.client.event.InputEvent;
 import net.minecraftforge.client.event.RegisterGuiOverlaysEvent;
@@ -30,7 +34,6 @@ public class ClientEvents {
             event.register(KeyBinding.HEAL_KEY);
         }
 
-        // Registro unificado de Overlays en el Bus del Mod
         @SubscribeEvent
         public static void registerOverlays(RegisterGuiOverlaysEvent event) {
             event.registerAbove(VanillaGuiOverlay.HOTBAR.id(), "skill_cooldowns", SkillCooldownOverlay.HUD_SKILLS);
@@ -53,13 +56,27 @@ public class ClientEvents {
                 Minecraft.getInstance().setScreen(new SkillTreeScreen());
             }
 
-            // Atajos directos
-            if (KeyBinding.SKILL_ACTIVATE_KEY.consumeClick()) ModMessages.sendToServer(new PacketCastSkill(SkillRegistry.NODE_ULTRACUT));
-            if (KeyBinding.SPIN_ATTACK_KEY.consumeClick())    ModMessages.sendToServer(new PacketCastSkill(SkillRegistry.NODE_HEAVY_TORNADO));
-            if (KeyBinding.MEGACUT_KEY.consumeClick())        ModMessages.sendToServer(new PacketCastSkill(SkillRegistry.NODE_MEGACUT));
-            if (KeyBinding.DASH_KEY.consumeClick())           ModMessages.sendToServer(new PacketCastSkill(SkillRegistry.NODE_DASH));
-            if (KeyBinding.FIREBALL_KEY.consumeClick())       ModMessages.sendToServer(new PacketCastSkill(SkillRegistry.NODE_FIREBALL));
-            if (KeyBinding.HEAL_KEY.consumeClick())           ModMessages.sendToServer(new PacketCastSkill(SkillRegistry.NODE_HEALING_AURA));
+            // [R] Disparar la habilidad activa seleccionada en tiempo real hacia la mira
+            if (KeyBinding.SKILL_ACTIVATE_KEY.consumeClick()) {
+                Player player = Minecraft.getInstance().player;
+                if (player != null) {
+                    player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
+                        ResourceLocation selected = skills.getSelectedSkill();
+                        if (selected != null) {
+                            ModMessages.sendToServer(new PacketCastSkill(selected));
+                        } else {
+                            player.displayClientMessage(Component.literal("§c[RPG] No tienes ninguna habilidad seleccionada. Abre la rueda con [Z]."), true);
+                        }
+                    });
+                }
+            }
+
+            // Atajos directos secundarios opcionales
+            if (KeyBinding.SPIN_ATTACK_KEY.consumeClick()) ModMessages.sendToServer(new PacketCastSkill(SkillRegistry.NODE_HEAVY_TORNADO));
+            if (KeyBinding.MEGACUT_KEY.consumeClick())     ModMessages.sendToServer(new PacketCastSkill(SkillRegistry.NODE_MEGACUT));
+            if (KeyBinding.DASH_KEY.consumeClick())        ModMessages.sendToServer(new PacketCastSkill(SkillRegistry.NODE_DASH));
+            if (KeyBinding.FIREBALL_KEY.consumeClick())    ModMessages.sendToServer(new PacketCastSkill(SkillRegistry.NODE_FIREBALL));
+            if (KeyBinding.HEAL_KEY.consumeClick())        ModMessages.sendToServer(new PacketCastSkill(SkillRegistry.NODE_HEALING_AURA));
         }
     }
 }

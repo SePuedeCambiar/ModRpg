@@ -19,7 +19,8 @@ public class ClientPacketHandler {
                         msg.ultimateCharged,
                         msg.equippedSkills,
                         msg.currentMana,
-                        msg.maxMana
+                        msg.maxMana,
+                        msg.selectedSkill
                 );
             });
         }
