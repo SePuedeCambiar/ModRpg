@@ -17,6 +17,7 @@ public class ClientEvents {
 
     @Mod.EventBusSubscriber(modid = ModRpg.MODID, value = Dist.CLIENT, bus = Mod.EventBusSubscriber.Bus.MOD)
     public static class ClientModBusEvents {
+
         @SubscribeEvent
         public static void onKeyRegister(RegisterKeyMappingsEvent event) {
             event.register(KeyBinding.RADIAL_MENU_KEY);
@@ -29,15 +30,17 @@ public class ClientEvents {
             event.register(KeyBinding.HEAL_KEY);
         }
 
-        // Registro del HUD de Cooldowns encima del inventario
+        // Registro unificado de Overlays en el Bus del Mod
         @SubscribeEvent
         public static void registerOverlays(RegisterGuiOverlaysEvent event) {
             event.registerAbove(VanillaGuiOverlay.HOTBAR.id(), "skill_cooldowns", SkillCooldownOverlay.HUD_SKILLS);
+            event.registerAbove(VanillaGuiOverlay.PLAYER_HEALTH.id(), "mana_overlay", ManaOverlay.HUD_MANA);
         }
     }
 
     @Mod.EventBusSubscriber(modid = ModRpg.MODID, value = Dist.CLIENT, bus = Mod.EventBusSubscriber.Bus.FORGE)
     public static class ClientForgeEvents {
+
         @SubscribeEvent
         public static void onKeyInput(InputEvent.Key event) {
             // [Z] Abrir Rueda Radial de Habilidades
@@ -50,7 +53,7 @@ public class ClientEvents {
                 Minecraft.getInstance().setScreen(new SkillTreeScreen());
             }
 
-            // Atajos directos opcionales
+            // Atajos directos
             if (KeyBinding.SKILL_ACTIVATE_KEY.consumeClick()) ModMessages.sendToServer(new PacketCastSkill(SkillRegistry.NODE_ULTRACUT));
             if (KeyBinding.SPIN_ATTACK_KEY.consumeClick())    ModMessages.sendToServer(new PacketCastSkill(SkillRegistry.NODE_HEAVY_TORNADO));
             if (KeyBinding.MEGACUT_KEY.consumeClick())        ModMessages.sendToServer(new PacketCastSkill(SkillRegistry.NODE_MEGACUT));
@@ -58,10 +61,5 @@ public class ClientEvents {
             if (KeyBinding.FIREBALL_KEY.consumeClick())       ModMessages.sendToServer(new PacketCastSkill(SkillRegistry.NODE_FIREBALL));
             if (KeyBinding.HEAL_KEY.consumeClick())           ModMessages.sendToServer(new PacketCastSkill(SkillRegistry.NODE_HEALING_AURA));
         }
-    }
-    @SubscribeEvent
-    public static void registerOverlays(RegisterGuiOverlaysEvent event) {
-        event.registerAbove(VanillaGuiOverlay.HOTBAR.id(), "skill_cooldowns", SkillCooldownOverlay.HUD_SKILLS);
-        event.registerAbove(VanillaGuiOverlay.PLAYER_HEALTH.id(), "mana_overlay", ManaOverlay.HUD_MANA);
     }
 }

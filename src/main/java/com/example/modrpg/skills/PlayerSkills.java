@@ -238,7 +238,7 @@ public class PlayerSkills {
                            Map<ResourceLocation, Integer> counters,
                            Map<ResourceLocation, Integer> cds,
                            boolean ultCharged) {
-        this.replaceAll(branches, nodes, counters, cds, ultCharged, Collections.emptyList(), 100.0f, 100.0f);
+        this.replaceAll(branches, nodes, counters, cds, ultCharged, Collections.emptyList(), this.currentMana, this.getMaxMana());
     }
 
     public void replaceAll(Map<ResourceLocation, Integer> branches,
@@ -247,7 +247,7 @@ public class PlayerSkills {
                            Map<ResourceLocation, Integer> cds,
                            boolean ultCharged,
                            List<ResourceLocation> equipped) {
-        this.replaceAll(branches, nodes, counters, cds, ultCharged, equipped, 100.0f, 100.0f);
+        this.replaceAll(branches, nodes, counters, cds, ultCharged, equipped, this.currentMana, this.getMaxMana());
     }
 
     public void replaceAll(Map<ResourceLocation, Integer> branches,
@@ -275,8 +275,8 @@ public class PlayerSkills {
         this.equippedSkills.clear();
         this.equippedSkills.addAll(equipped);
 
-        this.currentMana = curMana;
         this.maxMana = mXpMana;
+        this.currentMana = Math.max(0.0f, Math.min(curMana, mXpMana));
     }
 
     public void copyFrom(PlayerSkills source) {

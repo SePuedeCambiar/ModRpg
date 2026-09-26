@@ -19,6 +19,8 @@ public class PacketSyncSkillsToClient {
     public final Map<ResourceLocation, Integer> cooldowns;
     public final boolean ultimateCharged;
     public final List<ResourceLocation> equippedSkills;
+    public final float currentMana;
+    public final float maxMana;
 
     public PacketSyncSkillsToClient(PlayerSkills skills) {
         this.branchLevels = new HashMap<>(skills.getAllBranchLevels());
@@ -27,6 +29,8 @@ public class PacketSyncSkillsToClient {
         this.cooldowns = new HashMap<>(skills.getAllCooldowns());
         this.ultimateCharged = skills.isUltimateCharged();
         this.equippedSkills = new ArrayList<>(skills.getEquippedSkills());
+        this.currentMana = skills.getCurrentMana();
+        this.maxMana = skills.getMaxMana();
     }
 
     public PacketSyncSkillsToClient(Map<ResourceLocation, Integer> branchLevels,
@@ -34,13 +38,17 @@ public class PacketSyncSkillsToClient {
                                     Map<ResourceLocation, Integer> practiceCounters,
                                     Map<ResourceLocation, Integer> cooldowns,
                                     boolean ultimateCharged,
-                                    List<ResourceLocation> equippedSkills) {
+                                    List<ResourceLocation> equippedSkills,
+                                    float currentMana,
+                                    float maxMana) {
         this.branchLevels = branchLevels;
         this.unlockedNodes = unlockedNodes;
         this.practiceCounters = practiceCounters;
         this.cooldowns = cooldowns;
         this.ultimateCharged = ultimateCharged;
         this.equippedSkills = equippedSkills;
+        this.currentMana = currentMana;
+        this.maxMana = maxMana;
     }
 
     public static void encode(PacketSyncSkillsToClient msg, FriendlyByteBuf buf) {
@@ -50,6 +58,8 @@ public class PacketSyncSkillsToClient {
         buf.writeMap(msg.cooldowns, FriendlyByteBuf::writeResourceLocation, FriendlyByteBuf::writeVarInt);
         buf.writeBoolean(msg.ultimateCharged);
         buf.writeCollection(msg.equippedSkills, FriendlyByteBuf::writeResourceLocation);
+        buf.writeFloat(msg.currentMana);
+        buf.writeFloat(msg.maxMana);
     }
 
     public static PacketSyncSkillsToClient decode(FriendlyByteBuf buf) {
@@ -59,8 +69,10 @@ public class PacketSyncSkillsToClient {
         Map<ResourceLocation, Integer> cooldowns = buf.readMap(FriendlyByteBuf::readResourceLocation, FriendlyByteBuf::readVarInt);
         boolean ultimateCharged = buf.readBoolean();
         List<ResourceLocation> equippedSkills = buf.readCollection(ArrayList::new, FriendlyByteBuf::readResourceLocation);
+        float currentMana = buf.readFloat();
+        float maxMana = buf.readFloat();
 
-        return new PacketSyncSkillsToClient(branchLevels, unlockedNodes, practiceCounters, cooldowns, ultimateCharged, equippedSkills);
+        return new PacketSyncSkillsToClient(branchLevels, unlockedNodes, practiceCounters, cooldowns, ultimateCharged, equippedSkills, currentMana, maxMana);
     }
 
     public static void handle(PacketSyncSkillsToClient msg, Supplier<NetworkEvent.Context> ctx) {

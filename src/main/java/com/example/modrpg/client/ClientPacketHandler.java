@@ -17,7 +17,9 @@ public class ClientPacketHandler {
                         msg.practiceCounters,
                         msg.cooldowns,
                         msg.ultimateCharged,
-                        msg.equippedSkills
+                        msg.equippedSkills,
+                        msg.currentMana,
+                        msg.maxMana
                 );
             });
         }
