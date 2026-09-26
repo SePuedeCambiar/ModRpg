@@ -22,6 +22,7 @@ public class PacketSyncSkillsToClient {
     public final float currentMana;
     public final float maxMana;
     public final ResourceLocation selectedSkill;
+    public final Set<ResourceLocation> activeToggles;
 
     public PacketSyncSkillsToClient(PlayerSkills skills) {
         this.branchLevels = new HashMap<>(skills.getAllBranchLevels());
@@ -33,6 +34,7 @@ public class PacketSyncSkillsToClient {
         this.currentMana = skills.getCurrentMana();
         this.maxMana = skills.getMaxMana();
         this.selectedSkill = skills.getSelectedSkill();
+        this.activeToggles = new HashSet<>(skills.getActiveToggles());
     }
 
     public PacketSyncSkillsToClient(Map<ResourceLocation, Integer> branchLevels,
@@ -43,7 +45,8 @@ public class PacketSyncSkillsToClient {
                                     List<ResourceLocation> equippedSkills,
                                     float currentMana,
                                     float maxMana,
-                                    ResourceLocation selectedSkill) {
+                                    ResourceLocation selectedSkill,
+                                    Set<ResourceLocation> activeToggles) {
         this.branchLevels = branchLevels;
         this.unlockedNodes = unlockedNodes;
         this.practiceCounters = practiceCounters;
@@ -53,6 +56,7 @@ public class PacketSyncSkillsToClient {
         this.currentMana = currentMana;
         this.maxMana = maxMana;
         this.selectedSkill = selectedSkill;
+        this.activeToggles = activeToggles;
     }
 
     public static void encode(PacketSyncSkillsToClient msg, FriendlyByteBuf buf) {
@@ -69,6 +73,8 @@ public class PacketSyncSkillsToClient {
         if (msg.selectedSkill != null) {
             buf.writeResourceLocation(msg.selectedSkill);
         }
+
+        buf.writeCollection(msg.activeToggles, FriendlyByteBuf::writeResourceLocation);
     }
 
     public static PacketSyncSkillsToClient decode(FriendlyByteBuf buf) {
@@ -81,8 +87,9 @@ public class PacketSyncSkillsToClient {
         float currentMana = buf.readFloat();
         float maxMana = buf.readFloat();
         ResourceLocation selectedSkill = buf.readBoolean() ? buf.readResourceLocation() : null;
+        Set<ResourceLocation> activeToggles = buf.readCollection(HashSet::new, FriendlyByteBuf::readResourceLocation);
 
-        return new PacketSyncSkillsToClient(branchLevels, unlockedNodes, practiceCounters, cooldowns, ultimateCharged, equippedSkills, currentMana, maxMana, selectedSkill);
+        return new PacketSyncSkillsToClient(branchLevels, unlockedNodes, practiceCounters, cooldowns, ultimateCharged, equippedSkills, currentMana, maxMana, selectedSkill, activeToggles);
     }
 
     public static void handle(PacketSyncSkillsToClient msg, Supplier<NetworkEvent.Context> ctx) {

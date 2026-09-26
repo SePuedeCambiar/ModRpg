@@ -38,6 +38,7 @@ public class SkillRegistry {
     public static final ResourceLocation NODE_WIDE_SWEEP            = new ResourceLocation(ModRpg.MODID, "melee_wide_sweep");
     public static final ResourceLocation NODE_STEP_BOOST_MELEE_3    = new ResourceLocation(ModRpg.MODID, "melee_step_boost_3");
     public static final ResourceLocation NODE_ETHER_DUAL_SWORD      = new ResourceLocation(ModRpg.MODID, "melee_ether_dual_sword");
+    public static final ResourceLocation NODE_BERSERKER_STANCE     = new ResourceLocation(ModRpg.MODID, "melee_berserker_stance"); // <-- NUEVA POSTURA
     public static final ResourceLocation NODE_HEAVY_TORNADO         = new ResourceLocation(ModRpg.MODID, "melee_heavy_tornado");
     public static final ResourceLocation NODE_MEGACUT               = new ResourceLocation(ModRpg.MODID, "melee_megacut");
     public static final ResourceLocation NODE_ULTRACUT              = new ResourceLocation(ModRpg.MODID, "melee_ultracut");
@@ -148,6 +149,11 @@ public class SkillRegistry {
                 .addRequirement(SkillRequirement.branchLevel(BRANCH_MELEE, 5))
                 .addRequirement(SkillRequirement.branchLevel(BRANCH_MAGIC, 6))
                 .setVisuals(-70, -130, new ItemStack(Items.AMETHYST_SHARD), NODE_DOUBLE_ATTACK));
+
+        // Postura Berserker (Conmutable - Requiere CaC Nivel 8)
+        register(new BerserkerStanceSkill()
+                .addRequirement(SkillRequirement.branchLevel(BRANCH_MELEE, 8))
+                .setVisuals(-80, -90, new ItemStack(Items.BLAZE_POWDER), NODE_DOUBLE_ATTACK));
 
         register(new HeavyTornadoSkill()
                 .addRequirement(SkillRequirement.branchLevel(BRANCH_MELEE, 10))

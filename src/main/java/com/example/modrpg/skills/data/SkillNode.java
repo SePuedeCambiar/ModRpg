@@ -18,6 +18,7 @@ public abstract class SkillNode {
 
     public enum NodeType {
         PASSIVE_STAT,
+        PASSIVE_TOGGLE, // <-- Nuevo tipo: Posturas y Auras conmutables
         ACTIVE_ABILITY,
         HYBRID_SYNERGY,
         ULTIMATE
@@ -29,7 +30,8 @@ public abstract class SkillNode {
     private final Component description;
     private final NodeType type;
     private final int defaultCooldownTicks;
-    private float manaCost = 0.0f; // Coste en Maná (0 por defecto para ataques físicos)
+    private float manaCost = 0.0f;           // Coste de activación / casteo
+    private float sustainManaCost = 0.0f;    // Maná consumido por segundo mientras esté activa (para TOGGLE)
 
     private final List<SkillRequirement> requirements = new ArrayList<>();
     private int posX = 0;
@@ -53,6 +55,15 @@ public abstract class SkillNode {
 
     public float getManaCost() {
         return manaCost;
+    }
+
+    public SkillNode setSustainManaCost(float sustainCostPerSecond) {
+        this.sustainManaCost = Math.max(0.0f, sustainCostPerSecond);
+        return this;
+    }
+
+    public float getSustainManaCost() {
+        return sustainManaCost;
     }
 
     public SkillNode addRequirement(SkillRequirement requirement) {
@@ -104,6 +115,7 @@ public abstract class SkillNode {
 
     public void onUnlocked(ServerPlayer player, PlayerSkills skills) {}
     public void onExecuteActive(ServerPlayer player, PlayerSkills skills) {}
+    public void onToggleChanged(ServerPlayer player, PlayerSkills skills, boolean active) {}
     public void onLivingHurt(ServerPlayer player, LivingHurtEvent event, PlayerSkills skills) {}
     public void onArrowShoot(ServerPlayer player, EntityJoinLevelEvent event, AbstractArrow arrow, PlayerSkills skills) {}
 }

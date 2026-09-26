@@ -4,7 +4,6 @@ import com.example.modrpg.ModRpg;
 import com.example.modrpg.commands.RpgCommands;
 import com.example.modrpg.networking.ModMessages;
 import com.example.modrpg.networking.PacketSyncMana;
-import com.example.modrpg.skills.PlayerSkills;
 import com.example.modrpg.skills.PlayerSkillsProvider;
 import com.example.modrpg.skills.SkillAttributes;
 import com.example.modrpg.skills.SkillEconomy;
@@ -87,7 +86,7 @@ public class ModEvents {
         RpgCommands.register(event.getDispatcher());
     }
 
-    // 1. Tick de Cooldowns, I-Frames y Regeneración de Maná
+    // 1. Tick de Cooldowns, I-Frames, Drenaje de Posturas y Regeneración de Maná
     @SubscribeEvent
     public static void onPlayerTick(TickEvent.PlayerTickEvent event) {
         if (event.phase == TickEvent.Phase.END) {
@@ -95,7 +94,18 @@ public class ModEvents {
                 if (!event.player.level().isClientSide()) {
                     skills.tickServerSide();
 
-                    // Sincroniza maná cada segundo (20 ticks) al jugador
+                    // Aviso y feedback auditivo si las posturas activas se apagaron por falta de maná
+                    if (skills.consumeTogglesForceDeactivated() && event.player instanceof ServerPlayer serverPlayer) {
+                        serverPlayer.displayClientMessage(
+                                Component.literal("§c§l⚡ ¡MANÁ AGOTADO! §7Tus posturas activas se han desactivado."),
+                                true
+                        );
+                        serverPlayer.level().playSound(null, serverPlayer.getX(), serverPlayer.getY(), serverPlayer.getZ(),
+                                SoundEvents.FIRE_EXTINGUISH, SoundSource.PLAYERS, 0.8f, 1.2f);
+                        SkillEconomy.syncSkills(serverPlayer);
+                    }
+
+                    // Sincroniza maná cada segundo (20 ticks) al cliente
                     if (event.player.tickCount % 20 == 0 && event.player instanceof ServerPlayer serverPlayer) {
                         ModMessages.sendToPlayer(
                                 new PacketSyncMana(skills.getCurrentMana(), skills.getMaxMana()),
@@ -241,7 +251,7 @@ public class ModEvents {
         }
     }
 
-    // 7. Cálculo de Daño y Reenvío de Objetivos a los Esbirros
+    // 7. Cálculo de Daño, Reenvío a Esbirros y Despacho de Habilidades
     @SubscribeEvent
     public static void onLivingHurt(LivingHurtEvent event) {
         Entity attacker = event.getSource().getEntity();
@@ -259,6 +269,7 @@ public class ModEvents {
                     }
                 }
 
+                // Despacha a todos los nodos desbloqueados (las posturas conmutables verifican si están activas internamente)
                 for (ResourceLocation nodeId : skills.getUnlockedNodes()) {
                     SkillNode node = SkillRegistry.get(nodeId);
                     if (node != null) {

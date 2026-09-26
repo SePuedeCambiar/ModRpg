@@ -1,5 +1,6 @@
 package com.example.modrpg.skills;
 
+import com.example.modrpg.skills.data.SkillNode;
 import com.example.modrpg.skills.data.SkillRegistry;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
@@ -23,7 +24,11 @@ public class PlayerSkills {
     private final Map<ResourceLocation, Integer> cooldowns = new HashMap<>();
     private final List<ResourceLocation> equippedSkills = new ArrayList<>();
 
-    // Habilidad actualmente seleccionada en mano para ejecutar con la tecla [R]
+    // Pasivas conmutables (Toggle / Posturas activas)
+    private final Set<ResourceLocation> activeToggles = new HashSet<>();
+    private boolean togglesForceDeactivated = false;
+
+    // Habilidad actualmente seleccionada en mano para ejecutar con [R]
     private ResourceLocation selectedSkill = null;
 
     // Sistema de Maná
@@ -37,16 +42,60 @@ public class PlayerSkills {
     public PlayerSkills() {}
 
     // =========================================================================
+    // GESTIÓN DE PASIVAS CONMUTABLES (TOGGLE / POSTURAS)
+    // =========================================================================
+    public boolean isToggleActive(ResourceLocation skillId) {
+        return activeToggles.contains(skillId);
+    }
+
+    public void setToggleActive(ResourceLocation skillId, boolean active) {
+        if (!isNodeUnlocked(skillId)) return;
+        if (active) {
+            activeToggles.add(skillId);
+        } else {
+            activeToggles.remove(skillId);
+        }
+    }
+
+    public boolean toggleState(ResourceLocation skillId) {
+        if (!isNodeUnlocked(skillId)) return false;
+        if (isToggleActive(skillId)) {
+            activeToggles.remove(skillId);
+            return false;
+        } else {
+            activeToggles.add(skillId);
+            return true;
+        }
+    }
+
+    public Set<ResourceLocation> getActiveToggles() {
+        return Collections.unmodifiableSet(activeToggles);
+    }
+
+    public boolean consumeTogglesForceDeactivated() {
+        if (togglesForceDeactivated) {
+            togglesForceDeactivated = false;
+            return true;
+        }
+        return false;
+    }
+
+    // =========================================================================
     // HABILIDAD ACTIVA SELECCIONADA
     // =========================================================================
     public ResourceLocation getSelectedSkill() {
-        // Fallback: Si no está desbloqueada o equipada, deseleccionarla
         if (selectedSkill != null && (!isNodeUnlocked(selectedSkill) || !isSkillEquipped(selectedSkill))) {
             selectedSkill = null;
         }
-        // Si no hay ninguna seleccionada pero hay equipadas en la rueda, selecciona la primera
         if (selectedSkill == null && !equippedSkills.isEmpty()) {
-            selectedSkill = equippedSkills.get(0);
+            for (ResourceLocation id : equippedSkills) {
+                SkillNode node = SkillRegistry.get(id);
+                // Si es null (pruebas unitarias) o es activa/definitiva, auto-seleccionarla
+                if (node == null || node.getType() == SkillNode.NodeType.ACTIVE_ABILITY || node.getType() == SkillNode.NodeType.ULTIMATE) {
+                    selectedSkill = id;
+                    break;
+                }
+            }
         }
         return selectedSkill;
     }
@@ -56,7 +105,7 @@ public class PlayerSkills {
     }
 
     // =========================================================================
-    // SISTEMA DE MANÁ Y REGENERACIÓN (+5% por nivel de Magia)
+    // SISTEMA DE MANÁ Y REGENERACIÓN
     // =========================================================================
     public float getCurrentMana() {
         return currentMana;
@@ -94,6 +143,32 @@ public class PlayerSkills {
         tickCooldowns();
         tickIFrames();
 
+        // 1. Drenaje de Maná por Posturas Conmutables activas
+        if (!activeToggles.isEmpty()) {
+            float totalDrainPerTick = 0.0f;
+            for (ResourceLocation toggleId : activeToggles) {
+                SkillNode node = SkillRegistry.get(toggleId);
+                if (node != null && node.getSustainManaCost() > 0.0f) {
+                    totalDrainPerTick += (node.getSustainManaCost() / 20.0f);
+                }
+            }
+
+            if (totalDrainPerTick > 0.0f) {
+                if (this.currentMana >= totalDrainPerTick) {
+                    this.currentMana -= totalDrainPerTick;
+                } else {
+                    // Maná agotado: desactivar posturas de drenaje
+                    this.currentMana = 0.0f;
+                    activeToggles.removeIf(id -> {
+                        SkillNode node = SkillRegistry.get(id);
+                        return node != null && node.getSustainManaCost() > 0.0f;
+                    });
+                    this.togglesForceDeactivated = true;
+                }
+            }
+        }
+
+        // 2. Regeneración natural de maná
         float regenPerTick = getManaRegenPerSecond() / 20.0f;
         restoreMana(regenPerTick);
     }
@@ -126,9 +201,16 @@ public class PlayerSkills {
 
     public void unlockNode(ResourceLocation nodeId) {
         unlockedNodes.add(nodeId);
-        if (equippedSkills.size() < MAX_LOADOUT_SLOTS && !equippedSkills.contains(nodeId)) {
+        SkillNode node = SkillRegistry.get(nodeId);
+
+        // Si el nodo es null (IDs genéricos de tests unitarios) o es compatible con la rueda:
+        boolean canEquip = (node == null) || (node.getType() == SkillNode.NodeType.ACTIVE_ABILITY ||
+                node.getType() == SkillNode.NodeType.ULTIMATE ||
+                node.getType() == SkillNode.NodeType.PASSIVE_TOGGLE);
+
+        if (canEquip && equippedSkills.size() < MAX_LOADOUT_SLOTS && !equippedSkills.contains(nodeId)) {
             equippedSkills.add(nodeId);
-            if (selectedSkill == null) {
+            if (selectedSkill == null && (node == null || node.getType() != SkillNode.NodeType.PASSIVE_TOGGLE)) {
                 selectedSkill = nodeId;
             }
         }
@@ -137,6 +219,7 @@ public class PlayerSkills {
     public void lockNode(ResourceLocation nodeId) {
         unlockedNodes.remove(nodeId);
         equippedSkills.remove(nodeId);
+        activeToggles.remove(nodeId);
         if (Objects.equals(selectedSkill, nodeId)) {
             selectedSkill = null;
         }
@@ -163,9 +246,6 @@ public class PlayerSkills {
         } else {
             equippedSkills.add(skillId);
         }
-        if (selectedSkill == null) {
-            selectedSkill = skillId;
-        }
         return true;
     }
 
@@ -189,9 +269,6 @@ public class PlayerSkills {
             if (rl != null && !this.equippedSkills.contains(rl)) {
                 this.equippedSkills.add(rl);
             }
-        }
-        if (selectedSkill != null && !this.equippedSkills.contains(selectedSkill)) {
-            selectedSkill = null;
         }
     }
 
@@ -260,8 +337,36 @@ public class PlayerSkills {
     }
 
     // =========================================================================
-    // SINCRONIZACIÓN Y CLONACIÓN
+    // SINCRONIZACIÓN Y CLONACIÓN (Sobrecargas de compatibilidad)
     // =========================================================================
+    public void replaceAll(Map<ResourceLocation, Integer> branches,
+                           Set<ResourceLocation> nodes,
+                           Map<ResourceLocation, Integer> counters,
+                           Map<ResourceLocation, Integer> cds,
+                           boolean ultCharged) {
+        this.replaceAll(branches, nodes, counters, cds, ultCharged, Collections.emptyList(), this.currentMana, this.getMaxMana(), null, Collections.emptySet());
+    }
+
+    public void replaceAll(Map<ResourceLocation, Integer> branches,
+                           Set<ResourceLocation> nodes,
+                           Map<ResourceLocation, Integer> counters,
+                           Map<ResourceLocation, Integer> cds,
+                           boolean ultCharged,
+                           List<ResourceLocation> equipped) {
+        this.replaceAll(branches, nodes, counters, cds, ultCharged, equipped, this.currentMana, this.getMaxMana(), null, Collections.emptySet());
+    }
+
+    public void replaceAll(Map<ResourceLocation, Integer> branches,
+                           Set<ResourceLocation> nodes,
+                           Map<ResourceLocation, Integer> counters,
+                           Map<ResourceLocation, Integer> cds,
+                           boolean ultCharged,
+                           List<ResourceLocation> equipped,
+                           float curMana,
+                           float mXpMana) {
+        this.replaceAll(branches, nodes, counters, cds, ultCharged, equipped, curMana, mXpMana, null, Collections.emptySet());
+    }
+
     public void replaceAll(Map<ResourceLocation, Integer> branches,
                            Set<ResourceLocation> nodes,
                            Map<ResourceLocation, Integer> counters,
@@ -271,6 +376,19 @@ public class PlayerSkills {
                            float curMana,
                            float mXpMana,
                            ResourceLocation selected) {
+        this.replaceAll(branches, nodes, counters, cds, ultCharged, equipped, curMana, mXpMana, selected, Collections.emptySet());
+    }
+
+    public void replaceAll(Map<ResourceLocation, Integer> branches,
+                           Set<ResourceLocation> nodes,
+                           Map<ResourceLocation, Integer> counters,
+                           Map<ResourceLocation, Integer> cds,
+                           boolean ultCharged,
+                           List<ResourceLocation> equipped,
+                           float curMana,
+                           float mXpMana,
+                           ResourceLocation selected,
+                           Set<ResourceLocation> toggles) {
         this.branchLevels.clear();
         this.branchLevels.putAll(branches);
 
@@ -291,6 +409,9 @@ public class PlayerSkills {
         this.maxMana = mXpMana;
         this.currentMana = Math.max(0.0f, Math.min(curMana, mXpMana));
         this.selectedSkill = selected;
+
+        this.activeToggles.clear();
+        this.activeToggles.addAll(toggles);
     }
 
     public void copyFrom(PlayerSkills source) {
@@ -308,6 +429,9 @@ public class PlayerSkills {
 
         this.equippedSkills.clear();
         this.equippedSkills.addAll(source.equippedSkills);
+
+        this.activeToggles.clear();
+        this.activeToggles.addAll(source.activeToggles);
 
         this.currentMana = source.currentMana;
         this.maxMana = source.maxMana;
@@ -340,6 +464,10 @@ public class PlayerSkills {
         ListTag loadoutTag = new ListTag();
         equippedSkills.forEach(id -> loadoutTag.add(StringTag.valueOf(id.toString())));
         nbt.put("EquippedSkills", loadoutTag);
+
+        ListTag togglesTag = new ListTag();
+        activeToggles.forEach(id -> togglesTag.add(StringTag.valueOf(id.toString())));
+        nbt.put("ActiveToggles", togglesTag);
 
         if (selectedSkill != null) {
             nbt.putString("SelectedSkill", selectedSkill.toString());
@@ -393,6 +521,17 @@ public class PlayerSkills {
                 ResourceLocation rl = ResourceLocation.tryParse(loadoutTag.getString(i));
                 if (rl != null && !equippedSkills.contains(rl)) {
                     equippedSkills.add(rl);
+                }
+            }
+        }
+
+        activeToggles.clear();
+        if (nbt.contains("ActiveToggles", Tag.TAG_LIST)) {
+            ListTag togglesTag = nbt.getList("ActiveToggles", Tag.TAG_STRING);
+            for (int i = 0; i < togglesTag.size(); i++) {
+                ResourceLocation rl = ResourceLocation.tryParse(togglesTag.getString(i));
+                if (rl != null && isNodeUnlocked(rl)) {
+                    activeToggles.add(rl);
                 }
             }
         }

@@ -2,6 +2,7 @@ package com.example.modrpg.client;
 
 import com.example.modrpg.networking.ModMessages;
 import com.example.modrpg.networking.PacketSelectSkill;
+import com.example.modrpg.networking.PacketTogglePassive;
 import com.example.modrpg.skills.PlayerSkills;
 import com.example.modrpg.skills.PlayerSkillsProvider;
 import com.example.modrpg.skills.data.SkillNode;
@@ -28,6 +29,13 @@ public class RadialMenuScreen extends Screen {
         super(Component.literal("Rueda de Habilidades RPG"));
     }
 
+    private boolean isWheelCompatible(SkillNode node) {
+        if (node == null) return false;
+        return node.getType() == SkillNode.NodeType.ACTIVE_ABILITY ||
+                node.getType() == SkillNode.NodeType.ULTIMATE ||
+                node.getType() == SkillNode.NodeType.PASSIVE_TOGGLE;
+    }
+
     @Override
     protected void init() {
         super.init();
@@ -43,17 +51,17 @@ public class RadialMenuScreen extends Screen {
         List<ResourceLocation> equipped = skills.getEquippedSkills();
         for (ResourceLocation id : equipped) {
             SkillNode node = SkillRegistry.get(id);
-            if (node != null && (node.getType() == SkillNode.NodeType.ACTIVE_ABILITY || node.getType() == SkillNode.NodeType.ULTIMATE)) {
+            if (isWheelCompatible(node)) {
                 activeSkills.add(node);
             }
         }
 
-        // 2. Fallback: Si no ha configurado el loadout, toma hasta 8 activas desbloqueadas
+        // 2. Fallback
         if (activeSkills.isEmpty()) {
             for (ResourceLocation id : skills.getUnlockedNodes()) {
                 if (activeSkills.size() >= PlayerSkills.MAX_LOADOUT_SLOTS) break;
                 SkillNode node = SkillRegistry.get(id);
-                if (node != null && (node.getType() == SkillNode.NodeType.ACTIVE_ABILITY || node.getType() == SkillNode.NodeType.ULTIMATE)) {
+                if (isWheelCompatible(node)) {
                     activeSkills.add(node);
                 }
             }
@@ -74,7 +82,7 @@ public class RadialMenuScreen extends Screen {
         if (skills == null) return;
 
         if (activeSkills.isEmpty()) {
-            guiGraphics.drawCenteredString(this.font, "§cNo tienes habilidades activas equipadas.", centerX, centerY - 6, 0xFFFFFF);
+            guiGraphics.drawCenteredString(this.font, "§cNo tienes habilidades equipadas en la rueda.", centerX, centerY - 6, 0xFFFFFF);
             guiGraphics.drawCenteredString(this.font, "§7(Abre el árbol con [K] y equípalas con Clic Derecho)", centerX, centerY + 8, 0xAAAAAA);
             super.render(guiGraphics, mouseX, mouseY, partialTick);
             return;
@@ -96,60 +104,82 @@ public class RadialMenuScreen extends Screen {
                 hoveredSkill = node;
             }
 
+            boolean isToggle = node.getType() == SkillNode.NodeType.PASSIVE_TOGGLE;
             boolean isCurrentSelection = Objects.equals(node.getId(), currentlySelected);
             boolean onCooldown = skills.hasCooldown(node.getId());
             boolean enoughMana = skills.getCurrentMana() >= node.getManaCost();
 
             int borderColor;
-            if (isCurrentSelection) {
-                borderColor = 0xFF00FFFF; // Cyan brillante si está actualmente seleccionada para [R]
+            int borderThickness = 1;
+
+            if (isToggle) {
+                boolean active = skills.isToggleActive(node.getId());
+                if (active) {
+                    borderColor = 0xFF55FF55; // Verde brillante si está activada
+                    borderThickness = 2;
+                } else {
+                    borderColor = 0xFF555566; // Gris oscuro si está apagada
+                }
+            } else if (isCurrentSelection) {
+                borderColor = 0xFF00FFFF; // Cyan para la seleccionada en [R]
+                borderThickness = 2;
             } else if (onCooldown) {
-                borderColor = 0xFFAA2222; // Rojo si está en enfriamiento
+                borderColor = 0xFFAA2222;
             } else if (!enoughMana) {
-                borderColor = 0xFF3366BB; // Azul oscuro si falta maná
+                borderColor = 0xFF3366BB;
             } else {
-                borderColor = isHovered ? 0xFFFFFFFF : 0xFFDAA520; // Blanco si tiene cursor encima, dorado por defecto
+                borderColor = isHovered ? 0xFFFFFFFF : 0xFFDAA520;
             }
 
-            // Fondo y marco del badge (hacerlo 1 pixel más grueso si está seleccionada)
-            int borderThickness = isCurrentSelection ? 2 : 1;
+            // Fondo y marco
             guiGraphics.fill(nodeX - borderThickness, nodeY - borderThickness, nodeX + BADGE_SIZE + borderThickness, nodeY + BADGE_SIZE + borderThickness, borderColor);
             guiGraphics.fill(nodeX, nodeY, nodeX + BADGE_SIZE, nodeY + BADGE_SIZE, isHovered ? 0xFF2A2A38 : 0xFF14141E);
             guiGraphics.renderItem(node.getIcon(), nodeX + (BADGE_SIZE - 16) / 2, nodeY + (BADGE_SIZE - 16) / 2);
 
-            // Capa sombreada si está en cooldown
+            // Sombreado de cooldown
             if (onCooldown) {
                 guiGraphics.fill(nodeX, nodeY, nodeX + BADGE_SIZE, nodeY + BADGE_SIZE, 0x88AA0000);
             }
         }
 
-        // Información en el centro de la rueda
+        // Información central
         if (hoveredSkill != null) {
+            boolean isToggle = hoveredSkill.getType() == SkillNode.NodeType.PASSIVE_TOGGLE;
             boolean isCurrentSelection = Objects.equals(hoveredSkill.getId(), currentlySelected);
             String title = hoveredSkill.getDisplayName().getString();
-            guiGraphics.drawCenteredString(this.font, (isCurrentSelection ? "§b⭐ " : "§6") + "§l" + title, centerX, centerY - 20, 0xFFFFFF);
 
-            boolean onCooldown = skills.hasCooldown(hoveredSkill.getId());
-            boolean enoughMana = skills.getCurrentMana() >= hoveredSkill.getManaCost();
-
-            if (onCooldown) {
-                int seg = (skills.getCooldown(hoveredSkill.getId()) / 20) + 1;
-                guiGraphics.drawCenteredString(this.font, "§c⏳ Enfriamiento: " + seg + "s", centerX, centerY - 6, 0xFF8888);
-            } else if (!enoughMana) {
-                guiGraphics.drawCenteredString(this.font, "§9⚡ Falta Maná (Requiere: " + (int) hoveredSkill.getManaCost() + ")", centerX, centerY - 6, 0x88AAFF);
+            if (isToggle) {
+                boolean active = skills.isToggleActive(hoveredSkill.getId());
+                guiGraphics.drawCenteredString(this.font, (active ? "§a§l✔ " : "§7§l✖ ") + title + (active ? " §2[ACTIVA]" : " §8[DESACTIVADA]"), centerX, centerY - 20, 0xFFFFFF);
+                guiGraphics.drawCenteredString(this.font, "§eClic Izquierdo: Alternar Estado (ON / OFF)", centerX, centerY - 6, 0xFFFF88);
+                if (hoveredSkill.getSustainManaCost() > 0) {
+                    guiGraphics.drawCenteredString(this.font, "§9Mantenimiento: " + (int) hoveredSkill.getSustainManaCost() + " Maná/segundo", centerX, centerY + 8, 0x88AAFF);
+                }
             } else {
-                if (isCurrentSelection) {
-                    guiGraphics.drawCenteredString(this.font, "§b[EQUIPADA EN MANO - DISPARA CON R]", centerX, centerY - 6, 0x88FFFF);
+                guiGraphics.drawCenteredString(this.font, (isCurrentSelection ? "§b⭐ " : "§6") + "§l" + title, centerX, centerY - 20, 0xFFFFFF);
+
+                boolean onCooldown = skills.hasCooldown(hoveredSkill.getId());
+                boolean enoughMana = skills.getCurrentMana() >= hoveredSkill.getManaCost();
+
+                if (onCooldown) {
+                    int seg = (skills.getCooldown(hoveredSkill.getId()) / 20) + 1;
+                    guiGraphics.drawCenteredString(this.font, "§c⏳ Enfriamiento: " + seg + "s", centerX, centerY - 6, 0xFF8888);
+                } else if (!enoughMana) {
+                    guiGraphics.drawCenteredString(this.font, "§9⚡ Falta Maná (Requiere: " + (int) hoveredSkill.getManaCost() + ")", centerX, centerY - 6, 0x88AAFF);
                 } else {
-                    guiGraphics.drawCenteredString(this.font, "§aClic Izquierdo: Seleccionar para usar", centerX, centerY - 6, 0x88FF88);
+                    if (isCurrentSelection) {
+                        guiGraphics.drawCenteredString(this.font, "§b[EQUIPADA EN MANO - DISPARA CON R]", centerX, centerY - 6, 0x88FFFF);
+                    } else {
+                        guiGraphics.drawCenteredString(this.font, "§aClic Izquierdo: Seleccionar para usar", centerX, centerY - 6, 0x88FF88);
+                    }
+                }
+
+                if (hoveredSkill.getManaCost() > 0) {
+                    guiGraphics.drawCenteredString(this.font, "§bCoste: " + (int) hoveredSkill.getManaCost() + " Maná", centerX, centerY + 8, 0xAAAAAA);
                 }
             }
-
-            if (hoveredSkill.getManaCost() > 0) {
-                guiGraphics.drawCenteredString(this.font, "§bCoste: " + (int) hoveredSkill.getManaCost() + " Maná", centerX, centerY + 8, 0xAAAAAA);
-            }
         } else {
-            guiGraphics.drawCenteredString(this.font, "§7Selecciona una habilidad para tu tecla [R]", centerX, centerY - 6, 0xAAAAAA);
+            guiGraphics.drawCenteredString(this.font, "§7Selecciona habilidad o alterna posturas", centerX, centerY - 6, 0xAAAAAA);
         }
 
         super.render(guiGraphics, mouseX, mouseY, partialTick);
@@ -169,9 +199,19 @@ public class RadialMenuScreen extends Screen {
                 int nodeY = (int) (centerY + Math.sin(angle) * RADIUS) - (BADGE_SIZE / 2);
 
                 if (mouseX >= nodeX && mouseX <= nodeX + BADGE_SIZE && mouseY >= nodeY && mouseY <= nodeY + BADGE_SIZE) {
-                    // Seleccionar la habilidad para la tecla [R]
-                    ModMessages.sendToServer(new PacketSelectSkill(node.getId()));
+                    // CASO A: Es una pasiva conmutable (Toggle)
+                    if (node.getType() == SkillNode.NodeType.PASSIVE_TOGGLE) {
+                        ModMessages.sendToServer(new PacketTogglePassive(node.getId()));
+                        Player player = Minecraft.getInstance().player;
+                        if (player != null) {
+                            player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(s -> s.toggleState(node.getId()));
+                        }
+                        this.onClose();
+                        return true;
+                    }
 
+                    // CASO B: Es una habilidad activa normal
+                    ModMessages.sendToServer(new PacketSelectSkill(node.getId()));
                     Player player = Minecraft.getInstance().player;
                     if (player != null) {
                         player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(s -> s.setSelectedSkill(node.getId()));

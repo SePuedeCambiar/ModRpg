@@ -102,7 +102,7 @@ class PlayerSkillsTest {
         serverSkills.setSelectedSkill(skillTornado);
         assertTrue(serverSkills.hasCooldown(skillTornado));
 
-        // 2. Cliente recibe los datos completos (9 argumentos actualizados)
+        // 2. Cliente recibe los datos completos sincronizados
         PlayerSkills clientSkills = new PlayerSkills();
         clientSkills.replaceAll(
                 serverSkills.getAllBranchLevels(),
@@ -113,7 +113,8 @@ class PlayerSkillsTest {
                 serverSkills.getEquippedSkills(),
                 serverSkills.getCurrentMana(),
                 serverSkills.getMaxMana(),
-                serverSkills.getSelectedSkill()
+                serverSkills.getSelectedSkill(),
+                serverSkills.getActiveToggles()
         );
 
         assertTrue(clientSkills.hasCooldown(skillTornado));
@@ -177,5 +178,23 @@ class PlayerSkillsTest {
         // Si se desequipa, debe volver a null
         skills.unequipSkill(0);
         assertNull(skills.getSelectedSkill());
+    }
+
+    @Test
+    @DisplayName("Las pasivas conmutables (Toggle) deben alternar estado correctamente")
+    void testTogglePassiveBehavior() {
+        ResourceLocation stanceId = new ResourceLocation("modrpg", "melee_berserker_stance");
+
+        // No se puede activar si no está desbloqueada
+        assertFalse(skills.toggleState(stanceId));
+        assertFalse(skills.isToggleActive(stanceId));
+
+        // Al desbloquearla, podemos alternar ON / OFF
+        skills.unlockNode(stanceId);
+        assertTrue(skills.toggleState(stanceId)); // Pasa a ON
+        assertTrue(skills.isToggleActive(stanceId));
+
+        assertFalse(skills.toggleState(stanceId)); // Pasa a OFF
+        assertFalse(skills.isToggleActive(stanceId));
     }
 }
