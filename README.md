@@ -1,3 +1,8 @@
+
+# Documento de Especificación Técnica de Sistemas: ModRPG (`modrpg`)
+
+---
+
 ## 1. Especificaciones de Runtime y Dependencias
 
 * **Plataforma:** Minecraft Java Edition.
@@ -75,7 +80,7 @@ Para avanzar de un nivel $L$ a $L+1$ en cualquier rama, el costo $C(L)$ en nivel
 $$C(L) = \begin{cases} 
 1, & \text{si } L \le 0 \\
 100, & \text{si } L \ge 99 \\
-\max\left(1, \operatorname{round}\left(1.0 + \left(\frac{L}{99}\right)^{1.6} \times 99.0\right)\right), & \text{si } 0 < L < 99 
+\max\left(1, \text{round}\left(1.0 + \left(\frac{L}{99}\right)^{1.6} \times 99.0\right)\right), & \text{si } 0 < L < 99 
 \end{cases}$$
 
 ### 3.2 Requisito de Práctica Universal
@@ -121,7 +126,7 @@ $$\text{Daño} = \text{Base}_{\text{elem}} \times \text{Mod}_{\text{forma}}^{\te
 
 $$\text{Coste Maná} = \text{Base}_{\text{elem}}^{\text{mana}} \times \text{Mod}_{\text{forma}}^{\text{mana}} \times \text{Mod}_{\text{cadencia}}^{\text{mana}}$$
 
-$$\text{Cooldown (Ticks)} = \max\left(5, \operatorname{int}\left(\text{Base}_{\text{elem}}^{\text{cd}} \times \text{Mod}_{\text{forma}}^{\text{cd}} \times \text{Mod}_{\text{cadencia}}^{\text{cd}}\right)\right)$$
+$$\text{Cooldown (Ticks)} = \max\left(5, \text{int}\left(\text{Base}_{\text{elem}}^{\text{cd}} \times \text{Mod}_{\text{forma}}^{\text{cd}} \times \text{Mod}_{\text{cadencia}}^{\text{cd}}\right)\right)$$
 
 ### 4.2 Matriz de Componentes
 
