@@ -3,24 +3,24 @@ package com.example.modrpg.skills.data;
 import com.example.modrpg.skills.PlayerSkills;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.player.Player;
 
 public interface SkillRequirement {
 
     /**
-     * Comprueba si el jugador cumple esta condición.
+     * Comprueba si el jugador cumple esta condición (seguro tanto en cliente como en servidor).
      */
-    boolean isMet(ServerPlayer player, PlayerSkills skills);
+    boolean isMet(Player player, PlayerSkills skills);
 
     /**
-     * Consume el recurso si la condición lo requiere (ej: descontar niveles de XP al comprar).
+     * Consume el recurso si la condición lo requiere al desbloquear en el servidor.
      */
-    default void consume(ServerPlayer player, PlayerSkills skills) {}
+    default void consume(Player player, PlayerSkills skills) {}
 
     /**
      * Devuelve el texto descriptivo con indicador visual de estado (verde ✔ / rojo ✖).
      */
-    Component getTooltip(ServerPlayer player, PlayerSkills skills);
+    Component getTooltip(Player player, PlayerSkills skills);
 
     // =========================================================================
     // FÁBRICAS DE REQUISITOS (CONDICIONES DEL ÁRBOL)
@@ -32,14 +32,15 @@ public interface SkillRequirement {
     static SkillRequirement minPlayerXpLevel(int minXp) {
         return new SkillRequirement() {
             @Override
-            public boolean isMet(ServerPlayer player, PlayerSkills skills) {
-                return player.experienceLevel >= minXp;
+            public boolean isMet(Player player, PlayerSkills skills) {
+                return player != null && player.experienceLevel >= minXp;
             }
 
             @Override
-            public Component getTooltip(ServerPlayer player, PlayerSkills skills) {
+            public Component getTooltip(Player player, PlayerSkills skills) {
+                int current = (player != null) ? player.experienceLevel : 0;
                 boolean met = isMet(player, skills);
-                return Component.literal((met ? "§a✔ " : "§c✖ ") + "§7Nivel de jugador XP: §e" + minXp + " §7(Tienes: " + player.experienceLevel + ")");
+                return Component.literal((met ? "§a✔ " : "§c✖ ") + "§7Nivel de jugador XP: §e" + minXp + " §7(Tienes: " + current + ")");
             }
         };
     }
@@ -50,19 +51,22 @@ public interface SkillRequirement {
     static SkillRequirement consumePlayerXpLevels(int xpCost) {
         return new SkillRequirement() {
             @Override
-            public boolean isMet(ServerPlayer player, PlayerSkills skills) {
-                return player.experienceLevel >= xpCost;
+            public boolean isMet(Player player, PlayerSkills skills) {
+                return player != null && player.experienceLevel >= xpCost;
             }
 
             @Override
-            public void consume(ServerPlayer player, PlayerSkills skills) {
-                player.giveExperienceLevels(-xpCost);
+            public void consume(Player player, PlayerSkills skills) {
+                if (player != null) {
+                    player.giveExperienceLevels(-xpCost);
+                }
             }
 
             @Override
-            public Component getTooltip(ServerPlayer player, PlayerSkills skills) {
+            public Component getTooltip(Player player, PlayerSkills skills) {
+                int current = (player != null) ? player.experienceLevel : 0;
                 boolean met = isMet(player, skills);
-                return Component.literal((met ? "§a✔ " : "§c✖ ") + "§7Costo: §a" + xpCost + " niveles de XP");
+                return Component.literal((met ? "§a✔ " : "§c✖ ") + "§7Costo: §a" + xpCost + " niveles de XP §7(Tienes: " + current + ")");
             }
         };
     }
@@ -73,14 +77,14 @@ public interface SkillRequirement {
     static SkillRequirement branchLevel(ResourceLocation branchId, int minLevel) {
         return new SkillRequirement() {
             @Override
-            public boolean isMet(ServerPlayer player, PlayerSkills skills) {
-                return skills.getBranchLevel(branchId) >= minLevel;
+            public boolean isMet(Player player, PlayerSkills skills) {
+                return skills != null && skills.getBranchLevel(branchId) >= minLevel;
             }
 
             @Override
-            public Component getTooltip(ServerPlayer player, PlayerSkills skills) {
+            public Component getTooltip(Player player, PlayerSkills skills) {
+                int current = (skills != null) ? skills.getBranchLevel(branchId) : 0;
                 boolean met = isMet(player, skills);
-                int current = skills.getBranchLevel(branchId);
                 return Component.literal((met ? "§a✔ " : "§c✖ ") + "§7Requiere " + branchId.getPath().toUpperCase() + " Nivel " + minLevel + " §7(" + current + "/" + minLevel + ")");
             }
         };
@@ -92,14 +96,14 @@ public interface SkillRequirement {
     static SkillRequirement practice(ResourceLocation counterId, int requiredAmount, String practiceName) {
         return new SkillRequirement() {
             @Override
-            public boolean isMet(ServerPlayer player, PlayerSkills skills) {
-                return skills.getPractice(counterId) >= requiredAmount;
+            public boolean isMet(Player player, PlayerSkills skills) {
+                return skills != null && skills.getPractice(counterId) >= requiredAmount;
             }
 
             @Override
-            public Component getTooltip(ServerPlayer player, PlayerSkills skills) {
+            public Component getTooltip(Player player, PlayerSkills skills) {
+                int current = (skills != null) ? skills.getPractice(counterId) : 0;
                 boolean met = isMet(player, skills);
-                int current = skills.getPractice(counterId);
                 return Component.literal((met ? "§a✔ " : "§c✖ ") + "§7Práctica: §e" + current + "/" + requiredAmount + " " + practiceName);
             }
         };
@@ -111,12 +115,12 @@ public interface SkillRequirement {
     static SkillRequirement prerequisiteNode(ResourceLocation parentNodeId, String parentName) {
         return new SkillRequirement() {
             @Override
-            public boolean isMet(ServerPlayer player, PlayerSkills skills) {
-                return skills.isNodeUnlocked(parentNodeId);
+            public boolean isMet(Player player, PlayerSkills skills) {
+                return skills != null && skills.isNodeUnlocked(parentNodeId);
             }
 
             @Override
-            public Component getTooltip(ServerPlayer player, PlayerSkills skills) {
+            public Component getTooltip(Player player, PlayerSkills skills) {
                 boolean met = isMet(player, skills);
                 return Component.literal((met ? "§a✔ " : "§c✖ ") + "§7Requiere habilidad previa: §e" + parentName);
             }

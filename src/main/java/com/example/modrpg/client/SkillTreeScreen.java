@@ -3,8 +3,11 @@ package com.example.modrpg.client;
 import com.example.modrpg.networking.ModMessages;
 import com.example.modrpg.networking.PacketEquipSkill;
 import com.example.modrpg.networking.PacketUnlockNode;
+import com.example.modrpg.networking.PacketUpgradeSkill;
 import com.example.modrpg.skills.PlayerSkills;
 import com.example.modrpg.skills.PlayerSkillsProvider;
+import com.example.modrpg.skills.SkillEconomy;
+import com.example.modrpg.skills.data.SkillBranch;
 import com.example.modrpg.skills.data.SkillNode;
 import com.example.modrpg.skills.data.SkillRegistry;
 import com.example.modrpg.skills.data.SkillRequirement;
@@ -24,15 +27,14 @@ import java.util.List;
 
 public class SkillTreeScreen extends Screen {
 
-    // Desplazamiento y Zoom interactivo
     private double scrollX = 0;
     private double scrollY = 0;
     private double zoom = 1.0;
 
     private static final int NODE_SIZE = 26;
 
-    // Filtro por rama seleccionada (null = mostrar todas)
     private ResourceLocation selectedBranch = null;
+    private Button upgradeBranchButton;
 
     public SkillTreeScreen() {
         super(Component.literal("Árbol de Habilidades RPG"));
@@ -42,19 +44,19 @@ public class SkillTreeScreen extends Screen {
     protected void init() {
         super.init();
 
-        // Botón Recentrar
+        // 1. Botón Recentrar
         this.addRenderableWidget(Button.builder(Component.literal("⌖ Recentrar"), btn -> {
             this.scrollX = 0;
             this.scrollY = 0;
             this.zoom = 1.0;
         }).bounds(10, 10, 75, 20).build());
 
-        // Botón Cerrar
+        // 2. Botón Cerrar
         this.addRenderableWidget(Button.builder(Component.literal("Cerrar"), btn -> this.onClose())
                 .bounds(this.width - 65, 10, 55, 20).build());
 
-        // Pestañas de filtrado de ramas
-        int tabY = this.height - 28;
+        // 3. Pestañas de filtrado de ramas
+        int tabY = this.height - 26;
         int tabW = 68;
         int startX = (this.width / 2) - ((tabW * 6) / 2);
 
@@ -70,6 +72,65 @@ public class SkillTreeScreen extends Screen {
                 .bounds(startX + (tabW * 4), tabY, tabW, 20).build());
         this.addRenderableWidget(Button.builder(Component.literal("Defensa"), btn -> selectedBranch = SkillRegistry.BRANCH_DEFENSE)
                 .bounds(startX + (tabW * 5), tabY, tabW, 20).build());
+
+        // 4. Botón Dinámico de Mejora de Rama (Sprint 1)
+        int upgradeBtnW = 220;
+        int upgradeBtnX = (this.width / 2) - (upgradeBtnW / 2);
+        int upgradeBtnY = this.height - 52;
+
+        this.upgradeBranchButton = this.addRenderableWidget(Button.builder(
+                Component.literal("🔼 Mejorar Rama"),
+                btn -> {
+                    if (selectedBranch != null) {
+                        ModMessages.sendToServer(new PacketUpgradeSkill(selectedBranch.getPath()));
+                    }
+                }
+        ).bounds(upgradeBtnX, upgradeBtnY, upgradeBtnW, 20).build());
+    }
+
+    private void updateUpgradeButton(Player player, PlayerSkills skills) {
+        if (this.upgradeBranchButton == null) return;
+
+        if (selectedBranch == null) {
+            this.upgradeBranchButton.visible = false;
+            return;
+        }
+
+        this.upgradeBranchButton.visible = true;
+        SkillBranch branch = SkillRegistry.getBranch(selectedBranch);
+        if (branch == null || skills == null || player == null) {
+            this.upgradeBranchButton.active = false;
+            return;
+        }
+
+        int currentLvl = skills.getBranchLevel(selectedBranch);
+        if (currentLvl >= SkillEconomy.MAX_LEVEL) {
+            this.upgradeBranchButton.setMessage(Component.literal("§6★ Rama al Nivel Máximo (100)"));
+            this.upgradeBranchButton.active = false;
+            return;
+        }
+
+        int nextLvl = currentLvl + 1;
+        int xpCost = SkillEconomy.getXpCost(currentLvl);
+        int practiceNeeded = SkillEconomy.getRequiredPractice(nextLvl);
+        int playerPractice = skills.getPractice(branch.practiceCounterId());
+
+        boolean meetsMinUnlock = currentLvl > 0 || player.experienceLevel >= branch.minPlayerXpToUnlock();
+        boolean hasPractice = playerPractice >= practiceNeeded;
+        boolean hasXp = player.experienceLevel >= xpCost;
+
+        boolean canUpgrade = meetsMinUnlock && hasPractice && hasXp;
+        this.upgradeBranchButton.active = canUpgrade;
+
+        if (!meetsMinUnlock) {
+            this.upgradeBranchButton.setMessage(Component.literal("§c🔒 Requiere Nivel " + branch.minPlayerXpToUnlock() + " XP"));
+        } else if (!hasPractice) {
+            this.upgradeBranchButton.setMessage(Component.literal("§cFalta Práctica (" + playerPractice + "/" + practiceNeeded + ")"));
+        } else if (!hasXp) {
+            this.upgradeBranchButton.setMessage(Component.literal("§cFalta XP (" + xpCost + " Niveles Req.)"));
+        } else {
+            this.upgradeBranchButton.setMessage(Component.literal("§a🔼 Subir a Nvl " + nextLvl + " §e(-" + xpCost + " Niveles XP)"));
+        }
     }
 
     @Override
@@ -102,7 +163,6 @@ public class SkillTreeScreen extends Screen {
         PlayerSkills skills = player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).orElse(null);
         if (skills == null) return false;
 
-        // Conversión de coordenadas de pantalla a coordenadas del mundo 2D con zoom
         double worldMouseX = (mouseX - (this.width / 2.0)) / zoom - scrollX;
         double worldMouseY = (mouseY - (this.height / 2.0)) / zoom - scrollY;
 
@@ -111,14 +171,14 @@ public class SkillTreeScreen extends Screen {
             int ny = node.getPosY() - (NODE_SIZE / 2);
 
             if (worldMouseX >= nx && worldMouseX <= nx + NODE_SIZE && worldMouseY >= ny && worldMouseY <= ny + NODE_SIZE) {
-                // CLIC IZQUIERDO (0): Comprar / Desbloquear nodo
+                // CLIC IZQUIERDO: Comprar / Desbloquear nodo
                 if (button == 0) {
                     if (!skills.isNodeUnlocked(node.getId())) {
                         ModMessages.sendToServer(new PacketUnlockNode(node.getId()));
                         return true;
                     }
                 }
-                // CLIC DERECHO (1): Equipar / Desequipar en la Rueda Radial
+                // CLIC DERECHO: Equipar / Desequipar en la Rueda Radial
                 else if (button == 1) {
                     if (skills.isNodeUnlocked(node.getId())) {
                         ModMessages.sendToServer(new PacketEquipSkill(node.getId()));
@@ -138,15 +198,16 @@ public class SkillTreeScreen extends Screen {
         Player player = Minecraft.getInstance().player;
         PlayerSkills skills = (player != null) ? player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).orElse(null) : null;
 
+        updateUpgradeButton(player, skills);
+
         var pose = guiGraphics.pose();
         pose.pushPose();
 
-        // Aplicar transformación central de cámara con escala de zoom
         pose.translate(this.width / 2.0, this.height / 2.0, 0);
         pose.scale((float) zoom, (float) zoom, 1.0f);
         pose.translate(scrollX, scrollY, 0);
 
-        // 1. Dibujar líneas de conexión entre nodos
+        // 1. Líneas de conexión
         for (SkillNode node : SkillRegistry.getAll()) {
             int startX = node.getPosX();
             int startY = node.getPosY();
@@ -172,7 +233,7 @@ public class SkillTreeScreen extends Screen {
         guiGraphics.fill(-14, -14, 14, 14, 0xFFDAA520);
         guiGraphics.renderItem(new ItemStack(Items.COMPASS), -8, -8);
 
-        // 3. Dibujar cada nodo del árbol
+        // 3. Nodos del árbol
         double worldMouseX = (mouseX - (this.width / 2.0)) / zoom - scrollX;
         double worldMouseY = (mouseY - (this.height / 2.0)) / zoom - scrollY;
         SkillNode hoveredNode = null;
@@ -187,7 +248,7 @@ public class SkillTreeScreen extends Screen {
 
             int borderColor;
             if (isEquipped) {
-                borderColor = 0xFFFFFF55; // Borde dorado brillante si está equipada en la rueda
+                borderColor = 0xFFFFFF55;
             } else {
                 switch (node.getType()) {
                     case ULTIMATE -> borderColor = isUnlocked ? 0xFF55FF55 : 0xFF00AA00;
@@ -197,7 +258,7 @@ public class SkillTreeScreen extends Screen {
                 }
             }
 
-            int alpha = matchesFilter ? 0xFF : 0x44; // Atenuar si no coincide con la pestaña actual
+            int alpha = matchesFilter ? 0xFF : 0x44;
             int finalBorder = (borderColor & 0x00FFFFFF) | (alpha << 24);
             int finalBg = isUnlocked ? ((0x1A1A24 & 0x00FFFFFF) | (alpha << 24)) : ((0x0A0A0E & 0x00FFFFFF) | (alpha << 24));
 
@@ -212,15 +273,28 @@ public class SkillTreeScreen extends Screen {
 
         pose.popPose();
 
-        // Renderizado de widgets y botones
         super.render(guiGraphics, mouseX, mouseY, partialTick);
 
-        // Título e instrucciones superiores
+        // Panel de Estado Superior
         String branchText = (selectedBranch == null) ? "TODAS LAS RAMAS" : selectedBranch.getPath().toUpperCase();
         guiGraphics.drawString(this.font, "§6§lÁRBOL RPG §7[" + branchText + "]", 95, 12, 0xFFFFFF);
         guiGraphics.drawString(this.font, "§7Rueda: Zoom (" + (int)(zoom * 100) + "%) | Arrastrar: Mover cámara", 95, 23, 0x888888);
 
-        // 4. Tooltip flotante detallado
+        // Información detallada de la rama seleccionada
+        if (selectedBranch != null && skills != null) {
+            SkillBranch branch = SkillRegistry.getBranch(selectedBranch);
+            if (branch != null) {
+                int lvl = skills.getBranchLevel(selectedBranch);
+                int practice = skills.getPractice(branch.practiceCounterId());
+                int nextLvl = lvl + 1;
+                int reqPractice = SkillEconomy.getRequiredPractice(nextLvl);
+
+                String branchInfo = "§e" + branch.displayName().getString() + ": §fNivel " + lvl + "/100  §7|  Práctica: §b" + practice + (lvl < 100 ? "/" + reqPractice : "");
+                guiGraphics.drawCenteredString(this.font, branchInfo, this.width / 2, this.height - 64, 0xFFFFFF);
+            }
+        }
+
+        // 4. Tooltip flotante con Player seguro (Anti-NPE)
         if (hoveredNode != null && skills != null) {
             List<Component> tooltip = new ArrayList<>();
             tooltip.add(Component.literal("§l" + hoveredNode.getDisplayName().getString()));
@@ -234,7 +308,6 @@ public class SkillTreeScreen extends Screen {
             tooltip.add(Component.literal(typeBadge));
             tooltip.add(Component.literal("§7" + hoveredNode.getDescription().getString()));
 
-            // Información de maná y recarga
             if (hoveredNode.getManaCost() > 0) {
                 tooltip.add(Component.literal("§b⚡ Coste: §f" + (int) hoveredNode.getManaCost() + " Maná"));
             }
@@ -259,7 +332,8 @@ public class SkillTreeScreen extends Screen {
             } else {
                 tooltip.add(Component.literal("§eRequisitos para aprender:"));
                 for (SkillRequirement req : hoveredNode.getRequirements()) {
-                    tooltip.add(req.getTooltip(null, skills));
+                    // SE PASA EL JUGADOR DIRECTAMENTE: adiós al NullPointerException
+                    tooltip.add(req.getTooltip(player, skills));
                 }
                 tooltip.add(Component.literal(""));
                 tooltip.add(Component.literal("§a[Clic Izquierdo para comprar]"));

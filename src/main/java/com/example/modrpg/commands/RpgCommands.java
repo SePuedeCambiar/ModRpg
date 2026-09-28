@@ -4,6 +4,7 @@ import com.example.modrpg.ModRpg;
 import com.example.modrpg.skills.PlayerSkillsProvider;
 import com.example.modrpg.skills.SkillAttributes;
 import com.example.modrpg.skills.SkillEconomy;
+import com.example.modrpg.skills.data.SkillBranch;
 import com.example.modrpg.skills.data.SkillNode;
 import com.example.modrpg.skills.data.SkillRegistry;
 import com.mojang.brigadier.CommandDispatcher;
@@ -21,7 +22,7 @@ public class RpgCommands {
         dispatcher.register(Commands.literal("rpg")
 
                 // =========================================================================
-                // 1. COMANDO: /rpg stats (Muestra todas las ramas y habilidades activas)
+                // 1. COMANDO: /rpg stats (Dashboard Completo del Jugador)
                 // =========================================================================
                 .then(Commands.literal("stats")
                         .executes(context -> {
@@ -29,22 +30,35 @@ public class RpgCommands {
                             player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
                                 player.sendSystemMessage(Component.literal("§6================ TUS ESTADÍSTICAS RPG ================"));
 
-                                // Ramas activas
+                                // Ramas activas con fallback en nivel 0
                                 player.sendSystemMessage(Component.literal("§e--- NIVELES DE RAMAS ---"));
-                                skills.getAllBranchLevels().forEach((branchId, lvl) -> {
-                                    player.sendSystemMessage(Component.literal("§a• " + branchId.getPath().toUpperCase() + ": §fNivel " + lvl + "/100"));
-                                });
+                                for (SkillBranch branch : SkillRegistry.getAllBranches()) {
+                                    int lvl = skills.getBranchLevel(branch.id());
+                                    int practice = skills.getPractice(branch.practiceCounterId());
+                                    int reqPractice = SkillEconomy.getRequiredPractice(lvl + 1);
 
-                                // Práctica acumulada
-                                player.sendSystemMessage(Component.literal("§e--- PRÁCTICA Y BAJAS ---"));
-                                skills.getAllPracticeCounters().forEach((counterId, count) -> {
-                                    player.sendSystemMessage(Component.literal("§7• " + counterId.getPath() + ": §e" + count));
-                                });
+                                    player.sendSystemMessage(Component.literal(
+                                            "§a• " + branch.displayName().getString() + ": §fNivel " + lvl + "/100 " +
+                                                    (lvl < 100 ? "§7(Práctica: §b" + practice + "/" + reqPractice + "§7)" : "§6[MAX]")
+                                    ));
+                                }
+
+                                // Contadores de práctica registrados
+                                player.sendSystemMessage(Component.literal("§e--- PRÁCTICA Y COMBATE ---"));
+                                player.sendSystemMessage(Component.literal("§7• Bajas CaC: §e" + skills.getPractice(SkillRegistry.COUNTER_MELEE_KILLS)));
+                                player.sendSystemMessage(Component.literal("§7• Bajas a Distancia: §e" + skills.getPractice(SkillRegistry.COUNTER_RANGED_KILLS)));
+                                player.sendSystemMessage(Component.literal("§7• Lanzamientos Mágicos: §e" + skills.getPractice(SkillRegistry.COUNTER_MAGIC_CASTS)));
+                                player.sendSystemMessage(Component.literal("§7• Golpes Mitigados: §e" + skills.getPractice(SkillRegistry.COUNTER_DAMAGE_BLOCKED)));
+                                player.sendSystemMessage(Component.literal("§7• Distancia Recorrida: §e" + skills.getPractice(SkillRegistry.COUNTER_DISTANCE_RUN) + " bloques"));
+
+                                // Maná actual
+                                player.sendSystemMessage(Component.literal("§e--- ENERGÍA ---"));
+                                player.sendSystemMessage(Component.literal("§b⚡ Maná: §f" + (int) skills.getCurrentMana() + " / " + (int) skills.getMaxMana() + " §7(+" + String.format("%.1f", skills.getManaRegenPerSecond()) + "/s)"));
 
                                 // Habilidades desbloqueadas
-                                player.sendSystemMessage(Component.literal("§e--- HABILIDADES DESBLOQUEADAS ---"));
+                                player.sendSystemMessage(Component.literal("§e--- HABILIDADES APRENDIDAS ---"));
                                 if (skills.getUnlockedNodes().isEmpty()) {
-                                    player.sendSystemMessage(Component.literal("§7(Ninguna habilidad desbloqueada aún)"));
+                                    player.sendSystemMessage(Component.literal("§7(Ninguna habilidad desbloqueada aún. Abre el árbol con [K])"));
                                 } else {
                                     for (ResourceLocation nodeId : skills.getUnlockedNodes()) {
                                         SkillNode node = SkillRegistry.get(nodeId);
@@ -119,7 +133,7 @@ public class RpgCommands {
                 )
 
                 // =========================================================================
-                // 4. COMANDO ADMIN: /rpg unlock <skill_id> (Para pruebas instantáneas)
+                // 4. COMANDO ADMIN: /rpg unlock <skill_id>
                 // =========================================================================
                 .then(Commands.literal("unlock")
                         .requires(source -> source.hasPermission(2))
