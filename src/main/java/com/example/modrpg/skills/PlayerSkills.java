@@ -17,6 +17,11 @@ public class PlayerSkills {
     public static final int MAX_SPELL_MEMORY = 4;
     public static final float BASE_MANA_REGEN_PER_SEC = 2.0f;
 
+    // Límites de Especialización (Sprint 4)
+    public static final int CAP_BASE = 20;
+    public static final int CAP_SECONDARY = 50;
+    public static final int CAP_PRIMARY = 100;
+
     // =========================================================================
     // ESTRUCTURAS DE DATOS
     // =========================================================================
@@ -26,40 +31,77 @@ public class PlayerSkills {
     private final Map<ResourceLocation, Integer> cooldowns = new HashMap<>();
     private final List<ResourceLocation> equippedSkills = new ArrayList<>();
 
-    // Pasivas conmutables (Toggle / Posturas activas)
+    // Especializaciones elegidas
+    private ResourceLocation primaryBranch = null;   // Maestría hasta Nvl 100
+    private ResourceLocation secondaryBranch = null; // Sub-rama hasta Nvl 50
+
+    // Pasivas conmutables y Hechizos
     private final Set<ResourceLocation> activeToggles = new HashSet<>();
     private boolean togglesForceDeactivated = false;
-
-    // Memoria de Hechizos Modulares (4 ranuras)
     private final CraftedSpell[] spellMemory = new CraftedSpell[MAX_SPELL_MEMORY];
-
-    // Habilidad actualmente seleccionada en mano para ejecutar con [R]
     private ResourceLocation selectedSkill = null;
 
     // Sistema de Maná
     private float currentMana = 100.0f;
     private float maxMana = 100.0f;
 
-    // Estados transitorios de combate
+    // Estados transitorios
     private boolean ultimateCharged = false;
     private int dashIFrameTicks = 0;
 
     public PlayerSkills() {}
 
     // =========================================================================
+    // ESPECIALIZACIONES Y LÍMITES DE NIVEL (Sprint 4)
+    // =========================================================================
+    public ResourceLocation getPrimaryBranch() {
+        return primaryBranch;
+    }
+
+    public void setPrimaryBranch(ResourceLocation branch) {
+        this.primaryBranch = branch;
+    }
+
+    public ResourceLocation getSecondaryBranch() {
+        return secondaryBranch;
+    }
+
+    public void setSecondaryBranch(ResourceLocation branch) {
+        this.secondaryBranch = branch;
+    }
+
+    public int getMaxLevelForBranch(ResourceLocation branchId) {
+        if (Objects.equals(this.primaryBranch, branchId)) {
+            return CAP_PRIMARY; // 100
+        }
+        if (Objects.equals(this.secondaryBranch, branchId)) {
+            return CAP_SECONDARY; // 50
+        }
+        return CAP_BASE; // 20
+    }
+
+    public void respecSpecializations() {
+        this.primaryBranch = null;
+        this.secondaryBranch = null;
+
+        // Limita todas las ramas al tope base de 20
+        for (Map.Entry<ResourceLocation, Integer> entry : branchLevels.entrySet()) {
+            if (entry.getValue() > CAP_BASE) {
+                entry.setValue(CAP_BASE);
+            }
+        }
+    }
+
+    // =========================================================================
     // MEMORIA DE HECHIZOS MODULARES
     // =========================================================================
     public CraftedSpell getSpell(int slot) {
-        if (slot >= 0 && slot < MAX_SPELL_MEMORY) {
-            return spellMemory[slot];
-        }
+        if (slot >= 0 && slot < MAX_SPELL_MEMORY) return spellMemory[slot];
         return null;
     }
 
     public void setSpell(int slot, CraftedSpell spell) {
-        if (slot >= 0 && slot < MAX_SPELL_MEMORY) {
-            spellMemory[slot] = spell;
-        }
+        if (slot >= 0 && slot < MAX_SPELL_MEMORY) spellMemory[slot] = spell;
     }
 
     public CraftedSpell[] getAllSpells() {
@@ -67,7 +109,7 @@ public class PlayerSkills {
     }
 
     // =========================================================================
-    // GESTIÓN DE PASIVAS CONMUTABLES (TOGGLE / POSTURAS)
+    // GESTIÓN DE PASIVAS CONMUTABLES
     // =========================================================================
     public boolean isToggleActive(ResourceLocation skillId) {
         return activeToggles.contains(skillId);
@@ -75,11 +117,8 @@ public class PlayerSkills {
 
     public void setToggleActive(ResourceLocation skillId, boolean active) {
         if (!isNodeUnlocked(skillId)) return;
-        if (active) {
-            activeToggles.add(skillId);
-        } else {
-            activeToggles.remove(skillId);
-        }
+        if (active) activeToggles.add(skillId);
+        else activeToggles.remove(skillId);
     }
 
     public boolean toggleState(ResourceLocation skillId) {
@@ -125,9 +164,7 @@ public class PlayerSkills {
     // =========================================================================
     // SISTEMA DE MANÁ Y REGENERACIÓN
     // =========================================================================
-    public float getCurrentMana() {
-        return currentMana;
-    }
+    public float getCurrentMana() { return currentMana; }
 
     public float getMaxMana() {
         int magicLevel = getBranchLevel(SkillRegistry.BRANCH_MAGIC);
@@ -161,7 +198,6 @@ public class PlayerSkills {
         tickCooldowns();
         tickIFrames();
 
-        // 1. Drenaje de Maná por Posturas activas
         if (!activeToggles.isEmpty()) {
             float totalDrainPerTick = 0.0f;
             for (ResourceLocation toggleId : activeToggles) {
@@ -185,7 +221,6 @@ public class PlayerSkills {
             }
         }
 
-        // 2. Regeneración natural
         float regenPerTick = getManaRegenPerSecond() / 20.0f;
         restoreMana(regenPerTick);
     }
@@ -198,7 +233,8 @@ public class PlayerSkills {
     }
 
     public void setBranchLevel(ResourceLocation branchId, int level) {
-        branchLevels.put(branchId, Math.max(0, Math.min(level, 100)));
+        // La capability garantiza el límite físico absoluto entre 0 y 100
+        branchLevels.put(branchId, Math.max(0, Math.min(level, CAP_PRIMARY)));
     }
 
     public void addBranchLevel(ResourceLocation branchId, int amount) {
@@ -220,9 +256,7 @@ public class PlayerSkills {
         unlockedNodes.add(nodeId);
         if (equippedSkills.size() < MAX_LOADOUT_SLOTS && !equippedSkills.contains(nodeId)) {
             equippedSkills.add(nodeId);
-            if (selectedSkill == null) {
-                selectedSkill = nodeId;
-            }
+            if (selectedSkill == null) selectedSkill = nodeId;
         }
     }
 
@@ -230,9 +264,7 @@ public class PlayerSkills {
         unlockedNodes.remove(nodeId);
         equippedSkills.remove(nodeId);
         activeToggles.remove(nodeId);
-        if (Objects.equals(selectedSkill, nodeId)) {
-            selectedSkill = null;
-        }
+        if (Objects.equals(selectedSkill, nodeId)) selectedSkill = null;
     }
 
     public Set<ResourceLocation> getUnlockedNodes() {
@@ -256,18 +288,14 @@ public class PlayerSkills {
         } else {
             equippedSkills.add(skillId);
         }
-        if (selectedSkill == null) {
-            selectedSkill = skillId;
-        }
+        if (selectedSkill == null) selectedSkill = skillId;
         return true;
     }
 
     public void unequipSkill(int slot) {
         if (slot >= 0 && slot < equippedSkills.size()) {
             ResourceLocation removed = equippedSkills.remove(slot);
-            if (Objects.equals(selectedSkill, removed)) {
-                selectedSkill = null;
-            }
+            if (Objects.equals(selectedSkill, removed)) selectedSkill = null;
         }
     }
 
@@ -312,11 +340,8 @@ public class PlayerSkills {
     }
 
     public void setCooldown(ResourceLocation skillId, int ticks) {
-        if (ticks > 0) {
-            cooldowns.put(skillId, ticks);
-        } else {
-            cooldowns.remove(skillId);
-        }
+        if (ticks > 0) cooldowns.put(skillId, ticks);
+        else cooldowns.remove(skillId);
     }
 
     public boolean hasCooldown(ResourceLocation skillId) {
@@ -356,55 +381,15 @@ public class PlayerSkills {
                            Set<ResourceLocation> nodes,
                            Map<ResourceLocation, Integer> counters,
                            Map<ResourceLocation, Integer> cds,
-                           boolean ultCharged) {
-        this.replaceAll(branches, nodes, counters, cds, ultCharged, Collections.emptyList(), this.currentMana, this.getMaxMana(), null, Collections.emptySet(), new CraftedSpell[4]);
-    }
-
-    public void replaceAll(Map<ResourceLocation, Integer> branches,
-                           Set<ResourceLocation> nodes,
-                           Map<ResourceLocation, Integer> counters,
-                           Map<ResourceLocation, Integer> cds,
-                           boolean ultCharged,
-                           List<ResourceLocation> equipped) {
-        this.replaceAll(branches, nodes, counters, cds, ultCharged, equipped, this.currentMana, this.getMaxMana(), null, Collections.emptySet(), new CraftedSpell[4]);
-    }
-
-    public void replaceAll(Map<ResourceLocation, Integer> branches,
-                           Set<ResourceLocation> nodes,
-                           Map<ResourceLocation, Integer> counters,
-                           Map<ResourceLocation, Integer> cds,
-                           boolean ultCharged,
-                           List<ResourceLocation> equipped,
-                           float curMana,
-                           float mXpMana,
-                           ResourceLocation selected) {
-        this.replaceAll(branches, nodes, counters, cds, ultCharged, equipped, curMana, mXpMana, selected, Collections.emptySet(), new CraftedSpell[4]);
-    }
-
-    public void replaceAll(Map<ResourceLocation, Integer> branches,
-                           Set<ResourceLocation> nodes,
-                           Map<ResourceLocation, Integer> counters,
-                           Map<ResourceLocation, Integer> cds,
-                           boolean ultCharged,
-                           List<ResourceLocation> equipped,
-                           float curMana,
-                           float mXpMana,
-                           ResourceLocation selected,
-                           Set<ResourceLocation> toggles) {
-        this.replaceAll(branches, nodes, counters, cds, ultCharged, equipped, curMana, mXpMana, selected, toggles, new CraftedSpell[4]);
-    }
-
-    public void replaceAll(Map<ResourceLocation, Integer> branches,
-                           Set<ResourceLocation> nodes,
-                           Map<ResourceLocation, Integer> counters,
-                           Map<ResourceLocation, Integer> cds,
                            boolean ultCharged,
                            List<ResourceLocation> equipped,
                            float curMana,
                            float mXpMana,
                            ResourceLocation selected,
                            Set<ResourceLocation> toggles,
-                           CraftedSpell[] spells) {
+                           CraftedSpell[] spells,
+                           ResourceLocation primary,
+                           ResourceLocation secondary) {
         this.branchLevels.clear();
         this.branchLevels.putAll(branches);
 
@@ -434,6 +419,9 @@ public class PlayerSkills {
                 this.spellMemory[i] = (i < spells.length) ? spells[i] : null;
             }
         }
+
+        this.primaryBranch = primary;
+        this.secondaryBranch = secondary;
     }
 
     public void copyFrom(PlayerSkills source) {
@@ -461,10 +449,12 @@ public class PlayerSkills {
 
         this.currentMana = source.currentMana;
         this.maxMana = source.maxMana;
-
         this.ultimateCharged = source.ultimateCharged;
         this.selectedSkill = source.selectedSkill;
         this.dashIFrameTicks = 0;
+
+        this.primaryBranch = source.primaryBranch;
+        this.secondaryBranch = source.secondaryBranch;
     }
 
     // =========================================================================
@@ -495,7 +485,6 @@ public class PlayerSkills {
         activeToggles.forEach(id -> togglesTag.add(StringTag.valueOf(id.toString())));
         nbt.put("ActiveToggles", togglesTag);
 
-        // Guardar Memoria de Hechizos
         ListTag spellsTag = new ListTag();
         for (int i = 0; i < MAX_SPELL_MEMORY; i++) {
             if (spellMemory[i] != null) {
@@ -506,9 +495,9 @@ public class PlayerSkills {
         }
         nbt.put("SpellMemory", spellsTag);
 
-        if (selectedSkill != null) {
-            nbt.putString("SelectedSkill", selectedSkill.toString());
-        }
+        if (selectedSkill != null) nbt.putString("SelectedSkill", selectedSkill.toString());
+        if (primaryBranch != null) nbt.putString("PrimaryBranch", primaryBranch.toString());
+        if (secondaryBranch != null) nbt.putString("SecondaryBranch", secondaryBranch.toString());
 
         nbt.putFloat("CurrentMana", currentMana);
         nbt.putBoolean("UltimateCharged", ultimateCharged);
@@ -556,9 +545,7 @@ public class PlayerSkills {
             ListTag loadoutTag = nbt.getList("EquippedSkills", Tag.TAG_STRING);
             for (int i = 0; i < loadoutTag.size(); i++) {
                 ResourceLocation rl = ResourceLocation.tryParse(loadoutTag.getString(i));
-                if (rl != null && !equippedSkills.contains(rl)) {
-                    equippedSkills.add(rl);
-                }
+                if (rl != null && !equippedSkills.contains(rl)) equippedSkills.add(rl);
             }
         }
 
@@ -567,13 +554,10 @@ public class PlayerSkills {
             ListTag togglesTag = nbt.getList("ActiveToggles", Tag.TAG_STRING);
             for (int i = 0; i < togglesTag.size(); i++) {
                 ResourceLocation rl = ResourceLocation.tryParse(togglesTag.getString(i));
-                if (rl != null && isNodeUnlocked(rl)) {
-                    activeToggles.add(rl);
-                }
+                if (rl != null && isNodeUnlocked(rl)) activeToggles.add(rl);
             }
         }
 
-        // Cargar Memoria de Hechizos
         for (int i = 0; i < MAX_SPELL_MEMORY; i++) spellMemory[i] = null;
         if (nbt.contains("SpellMemory", Tag.TAG_LIST)) {
             ListTag spellsTag = nbt.getList("SpellMemory", Tag.TAG_COMPOUND);
@@ -588,15 +572,18 @@ public class PlayerSkills {
 
         if (nbt.contains("SelectedSkill", Tag.TAG_STRING)) {
             this.selectedSkill = ResourceLocation.tryParse(nbt.getString("SelectedSkill"));
-        } else {
-            this.selectedSkill = null;
-        }
+        } else this.selectedSkill = null;
 
-        if (nbt.contains("CurrentMana", Tag.TAG_FLOAT)) {
-            this.currentMana = nbt.getFloat("CurrentMana");
-        } else {
-            this.currentMana = 100.0f;
-        }
+        if (nbt.contains("PrimaryBranch", Tag.TAG_STRING)) {
+            this.primaryBranch = ResourceLocation.tryParse(nbt.getString("PrimaryBranch"));
+        } else this.primaryBranch = null;
+
+        if (nbt.contains("SecondaryBranch", Tag.TAG_STRING)) {
+            this.secondaryBranch = ResourceLocation.tryParse(nbt.getString("SecondaryBranch"));
+        } else this.secondaryBranch = null;
+
+        if (nbt.contains("CurrentMana", Tag.TAG_FLOAT)) this.currentMana = nbt.getFloat("CurrentMana");
+        else this.currentMana = 100.0f;
 
         this.ultimateCharged = nbt.getBoolean("UltimateCharged");
         this.dashIFrameTicks = 0;

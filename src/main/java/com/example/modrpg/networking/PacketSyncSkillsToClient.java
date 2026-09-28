@@ -26,6 +26,8 @@ public class PacketSyncSkillsToClient {
     public final ResourceLocation selectedSkill;
     public final Set<ResourceLocation> activeToggles;
     public final CraftedSpell[] spells;
+    public final ResourceLocation primaryBranch;
+    public final ResourceLocation secondaryBranch;
 
     public PacketSyncSkillsToClient(PlayerSkills skills) {
         this.branchLevels = new HashMap<>(skills.getAllBranchLevels());
@@ -39,6 +41,8 @@ public class PacketSyncSkillsToClient {
         this.selectedSkill = skills.getSelectedSkill();
         this.activeToggles = new HashSet<>(skills.getActiveToggles());
         this.spells = skills.getAllSpells();
+        this.primaryBranch = skills.getPrimaryBranch();
+        this.secondaryBranch = skills.getSecondaryBranch();
     }
 
     public PacketSyncSkillsToClient(Map<ResourceLocation, Integer> branchLevels,
@@ -51,7 +55,9 @@ public class PacketSyncSkillsToClient {
                                     float maxMana,
                                     ResourceLocation selectedSkill,
                                     Set<ResourceLocation> activeToggles,
-                                    CraftedSpell[] spells) {
+                                    CraftedSpell[] spells,
+                                    ResourceLocation primaryBranch,
+                                    ResourceLocation secondaryBranch) {
         this.branchLevels = branchLevels;
         this.unlockedNodes = unlockedNodes;
         this.practiceCounters = practiceCounters;
@@ -63,6 +69,8 @@ public class PacketSyncSkillsToClient {
         this.selectedSkill = selectedSkill;
         this.activeToggles = activeToggles;
         this.spells = spells;
+        this.primaryBranch = primaryBranch;
+        this.secondaryBranch = secondaryBranch;
     }
 
     public static void encode(PacketSyncSkillsToClient msg, FriendlyByteBuf buf) {
@@ -76,20 +84,21 @@ public class PacketSyncSkillsToClient {
         buf.writeFloat(msg.maxMana);
 
         buf.writeBoolean(msg.selectedSkill != null);
-        if (msg.selectedSkill != null) {
-            buf.writeResourceLocation(msg.selectedSkill);
-        }
+        if (msg.selectedSkill != null) buf.writeResourceLocation(msg.selectedSkill);
 
         buf.writeCollection(msg.activeToggles, FriendlyByteBuf::writeResourceLocation);
 
-        // Guardar los 4 slots de hechizos
         for (int i = 0; i < 4; i++) {
             boolean hasSpell = (msg.spells != null && i < msg.spells.length && msg.spells[i] != null);
             buf.writeBoolean(hasSpell);
-            if (hasSpell) {
-                buf.writeNbt(msg.spells[i].toNBT());
-            }
+            if (hasSpell) buf.writeNbt(msg.spells[i].toNBT());
         }
+
+        buf.writeBoolean(msg.primaryBranch != null);
+        if (msg.primaryBranch != null) buf.writeResourceLocation(msg.primaryBranch);
+
+        buf.writeBoolean(msg.secondaryBranch != null);
+        if (msg.secondaryBranch != null) buf.writeResourceLocation(msg.secondaryBranch);
     }
 
     public static PacketSyncSkillsToClient decode(FriendlyByteBuf buf) {
@@ -112,7 +121,10 @@ public class PacketSyncSkillsToClient {
             }
         }
 
-        return new PacketSyncSkillsToClient(branchLevels, unlockedNodes, practiceCounters, cooldowns, ultimateCharged, equippedSkills, currentMana, maxMana, selectedSkill, activeToggles, spells);
+        ResourceLocation primary = buf.readBoolean() ? buf.readResourceLocation() : null;
+        ResourceLocation secondary = buf.readBoolean() ? buf.readResourceLocation() : null;
+
+        return new PacketSyncSkillsToClient(branchLevels, unlockedNodes, practiceCounters, cooldowns, ultimateCharged, equippedSkills, currentMana, maxMana, selectedSkill, activeToggles, spells, primary, secondary);
     }
 
     public static void handle(PacketSyncSkillsToClient msg, Supplier<NetworkEvent.Context> ctx) {

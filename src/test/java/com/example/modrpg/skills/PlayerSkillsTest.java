@@ -21,6 +21,7 @@ class PlayerSkillsTest {
 
     private PlayerSkills skills;
     private final ResourceLocation branchMelee = new ResourceLocation("modrpg", "melee");
+    private final ResourceLocation branchMagic = new ResourceLocation("modrpg", "magic");
     private final ResourceLocation skillTornado = new ResourceLocation("modrpg", "melee_heavy_tornado");
     private final ResourceLocation stanceBerserker = new ResourceLocation("modrpg", "melee_berserker_stance");
     private final ResourceLocation counterKills = new ResourceLocation("modrpg", "melee_kills");
@@ -28,7 +29,6 @@ class PlayerSkillsTest {
 
     @BeforeEach
     void setUp() {
-        // Inicialización pura en memoria sin tocar registros congelados de Minecraft
         skills = new PlayerSkills();
     }
 
@@ -43,6 +43,34 @@ class PlayerSkillsTest {
 
         skills.addBranchLevel(branchMelee, 5);
         assertEquals(5, skills.getBranchLevel(branchMelee));
+    }
+
+    @Test
+    @DisplayName("Las especializaciones deben asignar correctamente los límites 20, 50 y 100 (Sprint 4)")
+    void testSpecializationCapsAndRespec() {
+        // Por defecto, sin especializaciones selladas, el límite es 20
+        assertEquals(PlayerSkills.CAP_BASE, skills.getMaxLevelForBranch(branchMelee));
+        assertEquals(PlayerSkills.CAP_BASE, skills.getMaxLevelForBranch(branchMagic));
+
+        // Sellamos Rama Principal (CaC) y Secundaria (Magia)
+        skills.setPrimaryBranch(branchMelee);
+        skills.setSecondaryBranch(branchMagic);
+
+        assertEquals(PlayerSkills.CAP_PRIMARY, skills.getMaxLevelForBranch(branchMelee)); // 100
+        assertEquals(PlayerSkills.CAP_SECONDARY, skills.getMaxLevelForBranch(branchMagic)); // 50
+
+        // Asignamos niveles superiores a 20
+        skills.setBranchLevel(branchMelee, 60);
+        skills.setBranchLevel(branchMagic, 35);
+        assertEquals(60, skills.getBranchLevel(branchMelee));
+        assertEquals(35, skills.getBranchLevel(branchMagic));
+
+        // Ejecutar Respec: libera los votos y recorta los niveles al tope base (20)
+        skills.respecSpecializations();
+        assertNull(skills.getPrimaryBranch());
+        assertNull(skills.getSecondaryBranch());
+        assertEquals(PlayerSkills.CAP_BASE, skills.getBranchLevel(branchMelee)); // Bajó a 20
+        assertEquals(PlayerSkills.CAP_BASE, skills.getBranchLevel(branchMagic)); // Bajó a 20
     }
 
     @Test
@@ -78,7 +106,6 @@ class PlayerSkillsTest {
     @Test
     @DisplayName("Drenaje de Maná en servidor por posturas activas y auto-apagado al llegar a 0")
     void testActiveTogglesManaDrainAndAutoDeactivation() {
-        // Registramos un nodo de prueba aislado con coste de mantenimiento sin tocar los ítems de Minecraft
         SkillNode testStance = new SkillNode(
                 stanceBerserker,
                 branchMelee,
@@ -93,19 +120,15 @@ class PlayerSkillsTest {
         skills.setToggleActive(stanceBerserker, true);
         assertTrue(skills.isToggleActive(stanceBerserker));
 
-        // Asignamos 2.0 de maná restante
         skills.setMana(2.0f);
 
-        // 1. En el primer tick verificamos que el maná drena activamente
         skills.tickServerSide();
         assertTrue(skills.getCurrentMana() < 2.0f, "El maná debe drenar mientras la postura esté activa");
 
-        // 2. Ejecutamos ticks hasta que el maná se agote y la postura se auto-desactive
         while (skills.isToggleActive(stanceBerserker)) {
             skills.tickServerSide();
         }
 
-        // 3. Verificamos que se apagó y que levantó la bandera de aviso
         assertFalse(skills.isToggleActive(stanceBerserker), "La postura debió auto-desactivarse al quedarse sin maná");
         assertTrue(skills.consumeTogglesForceDeactivated(), "La bandera de desactivación forzada debe ser true");
         assertFalse(skills.consumeTogglesForceDeactivated(), "La bandera debe limpiarse tras consumirse");
@@ -132,7 +155,7 @@ class PlayerSkillsTest {
 
             Component tooltip4 = practiceReq.getTooltip(null, skills);
             assertNotNull(tooltip4);
-        }, "Llamar a getTooltip con player = null jamás debe lanzar NullPointerException");
+        });
     }
 
     @Test

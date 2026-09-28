@@ -26,13 +26,18 @@ public class SkillRegistry {
     public static final ResourceLocation BRANCH_DEFENSE  = new ResourceLocation(ModRpg.MODID, "defense");
 
     // =========================================================================
-    // CONTADORES DE PRÁCTICA
+    // CONTADORES DE PRÁCTICA Y ASCENSIÓN (Actualizado Sprint 4)
     // =========================================================================
-    public static final ResourceLocation COUNTER_MELEE_KILLS    = new ResourceLocation(ModRpg.MODID, "melee_kills");
-    public static final ResourceLocation COUNTER_RANGED_KILLS   = new ResourceLocation(ModRpg.MODID, "ranged_kills");
-    public static final ResourceLocation COUNTER_MAGIC_CASTS    = new ResourceLocation(ModRpg.MODID, "magic_casts");
-    public static final ResourceLocation COUNTER_DAMAGE_BLOCKED = new ResourceLocation(ModRpg.MODID, "damage_blocked");
-    public static final ResourceLocation COUNTER_DISTANCE_RUN   = new ResourceLocation(ModRpg.MODID, "distance_run");
+    public static final ResourceLocation COUNTER_MELEE_KILLS         = new ResourceLocation(ModRpg.MODID, "melee_kills");
+    public static final ResourceLocation COUNTER_RANGED_KILLS        = new ResourceLocation(ModRpg.MODID, "ranged_kills");
+    public static final ResourceLocation COUNTER_MAGIC_CASTS         = new ResourceLocation(ModRpg.MODID, "magic_casts");
+    public static final ResourceLocation COUNTER_DAMAGE_BLOCKED      = new ResourceLocation(ModRpg.MODID, "damage_blocked");
+    public static final ResourceLocation COUNTER_DISTANCE_RUN        = new ResourceLocation(ModRpg.MODID, "distance_run");
+
+    // Nuevos contadores para Hitos de Ascensión
+    public static final ResourceLocation COUNTER_ELITE_KILLS         = new ResourceLocation(ModRpg.MODID, "elite_kills");
+    public static final ResourceLocation COUNTER_ELEMENTAL_REACTIONS = new ResourceLocation(ModRpg.MODID, "elemental_reactions");
+    public static final ResourceLocation COUNTER_STAGGER_INTERRUPTS  = new ResourceLocation(ModRpg.MODID, "stagger_interrupts");
 
     // =========================================================================
     // NODOS: CUERPO A CUERPO (MELEE)
@@ -44,9 +49,9 @@ public class SkillRegistry {
     public static final ResourceLocation NODE_WIDE_SWEEP            = new ResourceLocation(ModRpg.MODID, "melee_wide_sweep");
     public static final ResourceLocation NODE_STEP_BOOST_MELEE_3    = new ResourceLocation(ModRpg.MODID, "melee_step_boost_3");
     public static final ResourceLocation NODE_ETHER_DUAL_SWORD      = new ResourceLocation(ModRpg.MODID, "melee_ether_dual_sword");
-    public static final ResourceLocation NODE_BERSERKER_STANCE     = new ResourceLocation(ModRpg.MODID, "melee_berserker_stance"); // <-- Postura Toggle (Paso 2)
+    public static final ResourceLocation NODE_BERSERKER_STANCE      = new ResourceLocation(ModRpg.MODID, "melee_berserker_stance");
     public static final ResourceLocation NODE_HEAVY_TORNADO         = new ResourceLocation(ModRpg.MODID, "melee_heavy_tornado");
-    public static final ResourceLocation NODE_VITAL_CLEAVE          = new ResourceLocation(ModRpg.MODID, "melee_vital_cleave");     // <-- Daño Porcentual (Paso 3)
+    public static final ResourceLocation NODE_VITAL_CLEAVE          = new ResourceLocation(ModRpg.MODID, "melee_vital_cleave");
     public static final ResourceLocation NODE_MEGACUT               = new ResourceLocation(ModRpg.MODID, "melee_megacut");
     public static final ResourceLocation NODE_ULTRACUT              = new ResourceLocation(ModRpg.MODID, "melee_ultracut");
 
@@ -76,13 +81,13 @@ public class SkillRegistry {
     public static final ResourceLocation NODE_EARTH_TUNE            = new ResourceLocation(ModRpg.MODID, "magic_earth_tune");
     public static final ResourceLocation NODE_COUNTER_ATTACK        = new ResourceLocation(ModRpg.MODID, "magic_counter_attack");
     public static final ResourceLocation NODE_LIGHTNING_CHAIN       = new ResourceLocation(ModRpg.MODID, "magic_lightning_chain");
-    public static final ResourceLocation NODE_SUMMON_ZOMBIES       = new ResourceLocation(ModRpg.MODID, "magic_summon_zombies");
-    public static final ResourceLocation NODE_SUMMON_SKELETONS     = new ResourceLocation(ModRpg.MODID, "magic_summon_skeletons");
-    public static final ResourceLocation NODE_BEE_SWARM            = new ResourceLocation(ModRpg.MODID, "magic_bee_swarm");
-    public static final ResourceLocation NODE_SUMMON_WOLVES        = new ResourceLocation(ModRpg.MODID, "magic_summon_wolves");
+    public static final ResourceLocation NODE_SUMMON_ZOMBIES        = new ResourceLocation(ModRpg.MODID, "magic_summon_zombies");
+    public static final ResourceLocation NODE_SUMMON_SKELETONS      = new ResourceLocation(ModRpg.MODID, "magic_summon_skeletons");
+    public static final ResourceLocation NODE_BEE_SWARM             = new ResourceLocation(ModRpg.MODID, "magic_bee_swarm");
+    public static final ResourceLocation NODE_SUMMON_WOLVES         = new ResourceLocation(ModRpg.MODID, "magic_summon_wolves");
 
     // =========================================================================
-    // NODOS: RANURAS DE MAGIA MODULAR (Paso 4.2)
+    // NODOS: RANURAS DE MAGIA MODULAR
     // =========================================================================
     public static final ResourceLocation NODE_CUSTOM_SPELL_1        = new ResourceLocation(ModRpg.MODID, "custom_spell_1");
     public static final ResourceLocation NODE_CUSTOM_SPELL_2        = new ResourceLocation(ModRpg.MODID, "custom_spell_2");
@@ -181,7 +186,6 @@ public class SkillRegistry {
                 .addRequirement(SkillRequirement.branchLevel(BRANCH_MAGIC, 6))
                 .setVisuals(-70, -130, new ItemStack(Items.AMETHYST_SHARD), NODE_DOUBLE_ATTACK));
 
-        // Postura Berserker (Conmutable - Requiere CaC Nivel 8)
         register(new BerserkerStanceSkill()
                 .addRequirement(SkillRequirement.branchLevel(BRANCH_MELEE, 8))
                 .setVisuals(-80, -90, new ItemStack(Items.BLAZE_POWDER), NODE_DOUBLE_ATTACK));
@@ -191,7 +195,6 @@ public class SkillRegistry {
                 .addRequirement(SkillRequirement.practice(COUNTER_MELEE_KILLS, 20, "bajas CaC"))
                 .setVisuals(0, -130, new ItemStack(Items.DIAMOND_SWORD), NODE_DOUBLE_ATTACK));
 
-        // Tajo Vital (Daño Porcentual de Vida Actual - Requiere CaC Nivel 15)
         register(new VitalCleaveSkill()
                 .addRequirement(SkillRequirement.branchLevel(BRANCH_MELEE, 15))
                 .setVisuals(50, -160, new ItemStack(Items.DIAMOND_AXE), NODE_HEAVY_TORNADO));
@@ -290,30 +293,24 @@ public class SkillRegistry {
                 .addRequirement(SkillRequirement.branchLevel(BRANCH_MAGIC, 16))
                 .setVisuals(-300, 80, new ItemStack(Items.BONE), NODE_BEE_SWARM));
 
-        // ---------------------------------------------------------------------
-        // RANURAS DE HECHIZOS MODULARES (Paso 4.2)
-        // ---------------------------------------------------------------------
-        // Ranura 1: Accesible temprano (Magia Nivel 1)
+        // Ranuras modulares
         register(new CustomSpellSkillNode(NODE_CUSTOM_SPELL_1, 0)
                 .addRequirement(SkillRequirement.branchLevel(BRANCH_MAGIC, 1))
                 .setVisuals(-40, -180, new ItemStack(Items.WRITABLE_BOOK)));
 
-        // Ranura 2: Magia Nivel 10
         register(new CustomSpellSkillNode(NODE_CUSTOM_SPELL_2, 1)
                 .addRequirement(SkillRequirement.branchLevel(BRANCH_MAGIC, 10))
                 .setVisuals(-20, -220, new ItemStack(Items.WRITABLE_BOOK), NODE_CUSTOM_SPELL_1));
 
-        // Ranura 3: Magia Nivel 25
         register(new CustomSpellSkillNode(NODE_CUSTOM_SPELL_3, 2)
                 .addRequirement(SkillRequirement.branchLevel(BRANCH_MAGIC, 25))
                 .setVisuals(0, -260, new ItemStack(Items.WRITABLE_BOOK), NODE_CUSTOM_SPELL_2));
 
-        // Ranura 4: Magia Nivel 50
         register(new CustomSpellSkillNode(NODE_CUSTOM_SPELL_4, 3)
                 .addRequirement(SkillRequirement.branchLevel(BRANCH_MAGIC, 50))
                 .setVisuals(20, -300, new ItemStack(Items.WRITABLE_BOOK), NODE_CUSTOM_SPELL_3));
 
-        // 6. RAMA MOVILIDAD (Sprint 4)
+        // 6. RAMA MOVILIDAD
         register(new LightStepSkill()
                 .addRequirement(SkillRequirement.branchLevel(BRANCH_MOBILITY, 2))
                 .setVisuals(0, 70, new ItemStack(Items.LEATHER_BOOTS)));

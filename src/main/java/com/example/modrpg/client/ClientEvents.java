@@ -29,8 +29,8 @@ public class ClientEvents {
         public static void onKeyRegister(RegisterKeyMappingsEvent event) {
             event.register(KeyBinding.RADIAL_MENU_KEY);
             event.register(KeyBinding.OPEN_SKILLS_KEY);
-            event.register(KeyBinding.SPELL_CRAFTER_KEY); // [O] Altar de Creación de Hechizos
-            event.register(KeyBinding.SKILL_ACTIVATE_KEY); // [R] Lanzar habilidad seleccionada
+            event.register(KeyBinding.SPELL_CRAFTER_KEY);
+            event.register(KeyBinding.SKILL_ACTIVATE_KEY);
             event.register(KeyBinding.SPIN_ATTACK_KEY);
             event.register(KeyBinding.MEGACUT_KEY);
             event.register(KeyBinding.DASH_KEY);
@@ -38,14 +38,14 @@ public class ClientEvents {
             event.register(KeyBinding.HEAL_KEY);
         }
 
-        // Registro de Overlays (HUD de Cooldowns y Barra de Maná con habilidad activa)
         @SubscribeEvent
         public static void registerOverlays(RegisterGuiOverlaysEvent event) {
             event.registerAbove(VanillaGuiOverlay.HOTBAR.id(), "skill_cooldowns", SkillCooldownOverlay.HUD_SKILLS);
             event.registerAbove(VanillaGuiOverlay.PLAYER_HEALTH.id(), "mana_overlay", ManaOverlay.HUD_MANA);
+            // SPRINT 5: Registro del HUD de objetivo para Campeones y Casters
+            event.registerAbove(VanillaGuiOverlay.BOSS_EVENT_PROGRESS.id(), "champion_overlay", ChampionOverlay.HUD_CHAMPION);
         }
 
-        // Registro del renderizador para que el proyectil mágico se vea en el mundo
         @SubscribeEvent
         public static void registerEntityRenderers(EntityRenderersEvent.RegisterRenderers event) {
             event.registerEntityRenderer(ModEntities.MAGIC_PROJECTILE.get(), ThrownItemRenderer::new);
@@ -57,22 +57,18 @@ public class ClientEvents {
 
         @SubscribeEvent
         public static void onKeyInput(InputEvent.Key event) {
-            // [Z] Abrir Rueda Radial de Habilidades
             if (KeyBinding.RADIAL_MENU_KEY.consumeClick()) {
                 Minecraft.getInstance().setScreen(new RadialMenuScreen());
             }
 
-            // [K] Menú del Árbol de Habilidades
             if (KeyBinding.OPEN_SKILLS_KEY.consumeClick()) {
                 Minecraft.getInstance().setScreen(new SkillTreeScreen());
             }
 
-            // [O] Altar de Creación de Hechizos Modulares
             if (KeyBinding.SPELL_CRAFTER_KEY.consumeClick()) {
                 Minecraft.getInstance().setScreen(new SpellCraftingScreen());
             }
 
-            // [R] Disparar la habilidad activa seleccionada en tiempo real hacia la mira
             if (KeyBinding.SKILL_ACTIVATE_KEY.consumeClick()) {
                 Player player = Minecraft.getInstance().player;
                 if (player != null) {
@@ -87,7 +83,6 @@ public class ClientEvents {
                 }
             }
 
-            // Atajos directos secundarios opcionales
             if (KeyBinding.SPIN_ATTACK_KEY.consumeClick()) ModMessages.sendToServer(new PacketCastSkill(SkillRegistry.NODE_HEAVY_TORNADO));
             if (KeyBinding.MEGACUT_KEY.consumeClick())     ModMessages.sendToServer(new PacketCastSkill(SkillRegistry.NODE_MEGACUT));
             if (KeyBinding.DASH_KEY.consumeClick())        ModMessages.sendToServer(new PacketCastSkill(SkillRegistry.NODE_DASH));

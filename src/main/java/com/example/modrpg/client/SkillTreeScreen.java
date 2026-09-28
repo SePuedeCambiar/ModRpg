@@ -24,6 +24,7 @@ import net.minecraft.world.item.Items;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 public class SkillTreeScreen extends Screen {
 
@@ -73,8 +74,8 @@ public class SkillTreeScreen extends Screen {
         this.addRenderableWidget(Button.builder(Component.literal("Defensa"), btn -> selectedBranch = SkillRegistry.BRANCH_DEFENSE)
                 .bounds(startX + (tabW * 5), tabY, tabW, 20).build());
 
-        // 4. Botón Dinámico de Mejora de Rama (Sprint 1)
-        int upgradeBtnW = 220;
+        // 4. Botón Dinámico de Mejora
+        int upgradeBtnW = 260;
         int upgradeBtnX = (this.width / 2) - (upgradeBtnW / 2);
         int upgradeBtnY = this.height - 52;
 
@@ -104,13 +105,58 @@ public class SkillTreeScreen extends Screen {
         }
 
         int currentLvl = skills.getBranchLevel(selectedBranch);
+        int maxAllowed = skills.getMaxLevelForBranch(selectedBranch);
+
+        // A. Validar Nivel Máximo Absoluto (100)
         if (currentLvl >= SkillEconomy.MAX_LEVEL) {
             this.upgradeBranchButton.setMessage(Component.literal("§6★ Rama al Nivel Máximo (100)"));
             this.upgradeBranchButton.active = false;
             return;
         }
 
+        // B. Validar Límites de Especialización (Sprint 4)
+        if (currentLvl >= maxAllowed) {
+            ResourceLocation primary = skills.getPrimaryBranch();
+            ResourceLocation secondary = skills.getSecondaryBranch();
+
+            if (maxAllowed == PlayerSkills.CAP_BASE) { // 20
+                if (primary == null) {
+                    this.upgradeBranchButton.setMessage(Component.literal("§6★ Sellar como Rama Principal (Nvl 21)"));
+                } else if (secondary == null && !primary.equals(selectedBranch)) {
+                    this.upgradeBranchButton.setMessage(Component.literal("§b☯ Sellar como Rama Secundaria (Nvl 21)"));
+                } else {
+                    this.upgradeBranchButton.setMessage(Component.literal("§c🔒 Tope Rama Básica (20/20) - Ver /rpg respec"));
+                    this.upgradeBranchButton.active = false;
+                    return;
+                }
+            } else if (maxAllowed == PlayerSkills.CAP_SECONDARY) { // 50
+                this.upgradeBranchButton.setMessage(Component.literal("§c🔒 Tope Rama Secundaria (50/50)"));
+                this.upgradeBranchButton.active = false;
+                return;
+            }
+        }
+
         int nextLvl = currentLvl + 1;
+
+        // C. Validar Pruebas de Ascensión
+        int eliteKills = skills.getPractice(SkillRegistry.COUNTER_ELITE_KILLS);
+        if (nextLvl == 26 && eliteKills < 3) {
+            this.upgradeBranchButton.setMessage(Component.literal("§c🔒 Prueba Iniciado Req. (" + eliteKills + "/3 Élites)"));
+            this.upgradeBranchButton.active = false;
+            return;
+        }
+        if (nextLvl == 51 && eliteKills < 10) {
+            this.upgradeBranchButton.setMessage(Component.literal("§c🔒 Prueba Maestro Req. (" + eliteKills + "/10 Élites)"));
+            this.upgradeBranchButton.active = false;
+            return;
+        }
+        if (nextLvl == 76 && eliteKills < 25) {
+            this.upgradeBranchButton.setMessage(Component.literal("§c🔒 Prueba Gran Maestro Req. (" + eliteKills + "/25 Élites)"));
+            this.upgradeBranchButton.active = false;
+            return;
+        }
+
+        // D. Validar Economía (Práctica y XP)
         int xpCost = SkillEconomy.getXpCost(currentLvl);
         int practiceNeeded = SkillEconomy.getRequiredPractice(nextLvl);
         int playerPractice = skills.getPractice(branch.practiceCounterId());
@@ -171,15 +217,12 @@ public class SkillTreeScreen extends Screen {
             int ny = node.getPosY() - (NODE_SIZE / 2);
 
             if (worldMouseX >= nx && worldMouseX <= nx + NODE_SIZE && worldMouseY >= ny && worldMouseY <= ny + NODE_SIZE) {
-                // CLIC IZQUIERDO: Comprar / Desbloquear nodo
                 if (button == 0) {
                     if (!skills.isNodeUnlocked(node.getId())) {
                         ModMessages.sendToServer(new PacketUnlockNode(node.getId()));
                         return true;
                     }
-                }
-                // CLIC DERECHO: Equipar / Desequipar en la Rueda Radial
-                else if (button == 1) {
+                } else if (button == 1) {
                     if (skills.isNodeUnlocked(node.getId())) {
                         ModMessages.sendToServer(new PacketEquipSkill(node.getId()));
                         return true;
@@ -207,7 +250,7 @@ public class SkillTreeScreen extends Screen {
         pose.scale((float) zoom, (float) zoom, 1.0f);
         pose.translate(scrollX, scrollY, 0);
 
-        // 1. Líneas de conexión
+        // Líneas de conexión
         for (SkillNode node : SkillRegistry.getAll()) {
             int startX = node.getPosX();
             int startY = node.getPosY();
@@ -228,12 +271,12 @@ public class SkillTreeScreen extends Screen {
             }
         }
 
-        // 2. Nodo central de inicio
+        // Nodo central
         guiGraphics.fill(-16, -16, 16, 16, 0xFF222233);
         guiGraphics.fill(-14, -14, 14, 14, 0xFFDAA520);
         guiGraphics.renderItem(new ItemStack(Items.COMPASS), -8, -8);
 
-        // 3. Nodos del árbol
+        // Nodos del árbol
         double worldMouseX = (mouseX - (this.width / 2.0)) / zoom - scrollX;
         double worldMouseY = (mouseY - (this.height / 2.0)) / zoom - scrollY;
         SkillNode hoveredNode = null;
@@ -275,26 +318,35 @@ public class SkillTreeScreen extends Screen {
 
         super.render(guiGraphics, mouseX, mouseY, partialTick);
 
-        // Panel de Estado Superior
-        String branchText = (selectedBranch == null) ? "TODAS LAS RAMAS" : selectedBranch.getPath().toUpperCase();
+        // Panel de Estado Superior con Insignia de Especialización
+        String branchText = "TODAS LAS RAMAS";
+        if (selectedBranch != null && skills != null) {
+            String specTag;
+            if (Objects.equals(selectedBranch, skills.getPrimaryBranch())) specTag = " §6★ [MAESTRÍA / MÁX 100]";
+            else if (Objects.equals(selectedBranch, skills.getSecondaryBranch())) specTag = " §b☯ [SECUNDARIA / MÁX 50]";
+            else specTag = " §7◆ [BÁSICA / MÁX 20]";
+            branchText = selectedBranch.getPath().toUpperCase() + specTag;
+        }
+
         guiGraphics.drawString(this.font, "§6§lÁRBOL RPG §7[" + branchText + "]", 95, 12, 0xFFFFFF);
         guiGraphics.drawString(this.font, "§7Rueda: Zoom (" + (int)(zoom * 100) + "%) | Arrastrar: Mover cámara", 95, 23, 0x888888);
 
-        // Información detallada de la rama seleccionada
+        // Información de la rama seleccionada
         if (selectedBranch != null && skills != null) {
             SkillBranch branch = SkillRegistry.getBranch(selectedBranch);
             if (branch != null) {
                 int lvl = skills.getBranchLevel(selectedBranch);
+                int maxAllowed = skills.getMaxLevelForBranch(selectedBranch);
                 int practice = skills.getPractice(branch.practiceCounterId());
                 int nextLvl = lvl + 1;
                 int reqPractice = SkillEconomy.getRequiredPractice(nextLvl);
 
-                String branchInfo = "§e" + branch.displayName().getString() + ": §fNivel " + lvl + "/100  §7|  Práctica: §b" + practice + (lvl < 100 ? "/" + reqPractice : "");
+                String branchInfo = "§e" + branch.displayName().getString() + ": §fNivel " + lvl + "/" + maxAllowed + "  §7|  Práctica: §b" + practice + (lvl < maxAllowed ? "/" + reqPractice : " §6[LÍMITE]");
                 guiGraphics.drawCenteredString(this.font, branchInfo, this.width / 2, this.height - 64, 0xFFFFFF);
             }
         }
 
-        // 4. Tooltip flotante con Player seguro (Anti-NPE)
+        // Tooltip del nodo
         if (hoveredNode != null && skills != null) {
             List<Component> tooltip = new ArrayList<>();
             tooltip.add(Component.literal("§l" + hoveredNode.getDisplayName().getString()));
@@ -332,7 +384,6 @@ public class SkillTreeScreen extends Screen {
             } else {
                 tooltip.add(Component.literal("§eRequisitos para aprender:"));
                 for (SkillRequirement req : hoveredNode.getRequirements()) {
-                    // SE PASA EL JUGADOR DIRECTAMENTE: adiós al NullPointerException
                     tooltip.add(req.getTooltip(player, skills));
                 }
                 tooltip.add(Component.literal(""));

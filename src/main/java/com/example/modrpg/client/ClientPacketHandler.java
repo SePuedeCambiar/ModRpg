@@ -22,7 +22,9 @@ public class ClientPacketHandler {
                         msg.maxMana,
                         msg.selectedSkill,
                         msg.activeToggles,
-                        msg.spells
+                        msg.spells,
+                        msg.primaryBranch,
+                        msg.secondaryBranch
                 );
             });
         }
