@@ -1,66 +1,69 @@
-***
-
+```markdown
 # Especificación Técnica de Arquitectura e Implementación: ModRPG
 
-## 1. Entorno de Ejecución y Runtime
+## 1. Entorno de Ejecución y Dependencias
 
 * **Plataforma:** Minecraft Java Edition
 * **Versión de Runtime:** 1.20.1
-* **Cargador de Módulos:** Minecraft Forge `47.4.10+` (FML Specification `[47,)`)
-* **Toolchain / JDK:** OpenJDK 17 LTS (Lenguaje fuente / Bytecode objetivo: Java 17)
+* **Cargador de Módulos:** Minecraft Forge `47.4.10+` (Especificación FML `[47,)`)
+* **Toolchain / JDK:** OpenJDK 17 LTS (Compatibilidad de bytecode: Java 17)
 * **Mapeos de Símbolos:** Mojang Official Mappings (`1.20.1`)
 * **Identificador de Módulo (`modid`):** `modrpg`
-* **Protocolo de Comunicación en Red:** `modrpg:main` v8
+* **Protocolo de Red:** `modrpg:main` v8
+* **Entorno de Pruebas Unitarias:** JUnit 5 (`5.10.2`) / Mockito (`5.11.0`)
 
 ---
 
 ## 2. Arquitectura General del Sistema
 
-El módulo se estructura bajo un patrón desacoplado guiado por eventos (Event-Driven Architecture) apoyado en el bus unificado de Forge (`MinecraftForge.EVENT_BUS`), sincronizado mediante un canal bidireccional determinista y persistido a través del sistema de `Capability` de Forge adjunto a la entidad `ServerPlayer`.
+El módulo implementa un modelo desacoplado orientado a eventos, coordinado a través del bus común de Forge (`MinecraftForge.EVENT_BUS`), el bus de ciclo de vida del mod (`FMLJavaModLoadingContext`), una capa de transporte de red binaria (`SimpleChannel`) y la API de Capabilities de Forge para la persistencia del estado en entidades vivas.
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
 │                          CAPA DE PRESENTACIÓN                          │
 │  SkillTreeScreen │ RadialMenuScreen │ SpellCraftingScreen │ Overlays   │
 └───────────────────────────────────┬────────────────────────────────────┘
-                                    │ Paquetes de Red (ModMessages v8)
+                                    │ Serialización FriendlyByteBuf
 ┌───────────────────────────────────▼────────────────────────────────────┐
 │                           CAPA DE TRANSPORTE                           │
-│     9 Paquetes Bidireccionales (C2S / S2C) sobre SimpleChannel         │
+│           ModMessages (SimpleChannel v8 - 9 Paquetes Registrados)      │
 └───────────────────────────────────┬────────────────────────────────────┘
-                                    │ Mutación atómica y validaciones
+                                    │ EnqueueWork al hilo del servidor
 ┌───────────────────────────────────▼────────────────────────────────────┐
-│                        CAPA DE DOMINIO Y DATOS                         │
-│   PlayerSkills (Capability)      │ SkillRegistry / SkillEconomy         │
-│   Modular Magic Engine           │ ElementalReactionManager            │
-│   SquadCoordinator (F.E.A.R. AI) │ TacticalCasterGoal / ChampionAffix  │
+│                       LÓGICA DE DOMINIO Y DATOS                        │
+│    PlayerSkills (Capability)      ───► SkillRegistry / Nodes           │
+│    SkillProgression / Economy     ───► SkillAttributes (Modifiers)     │
+│    CraftedSpell (Modular Magic)   ───► ElementalReactionManager        │
+│    SquadCoordinator (F.E.A.R. AI) ───► EnemyRpgManager                 │
 └───────────────────────────────────┬────────────────────────────────────┘
-                                    │ Intercepción de eventos de bajo nivel
+                                    │ Pipeline de eventos de bajo nivel
 ┌───────────────────────────────────▼────────────────────────────────────┐
-│                           CAPA DE INTEGRACIÓN                          │
-│   ModEvents (LivingHurt, LivingAttack, PlayerTick, LivingFall, etc.)    │
+│                           PIPELINE DE HOOKS                            │
+│    ModEvents (LivingHurt, LivingAttack, PlayerTick, LivingFall...)     │
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 3. Modelo de Datos y Persistencia (`PlayerSkills`)
+## 3. Persistencia de Datos (`PlayerSkills`)
 
-Vinculada a cada instancia de `net.minecraft.world.entity.player.Player` mediante `PlayerSkillsProvider`. Implementa `INBTSerializable<CompoundTag>`.
+Vinculada a cada instancia de `ServerPlayer` mediante `PlayerSkillsProvider`. Implementa la interfaz `INBTSerializable<CompoundTag>`.
 
 ### 3.1 Estructuras de Datos en Memoria
 * `branchLevels: Map<ResourceLocation, Integer>`: Nivel actual por rama $[0, 100]$.
-* `unlockedNodes: Set<ResourceLocation>`: Identificadores de habilidades activas/pasivas aprendidas.
-* `practiceCounters: Map<ResourceLocation, Integer>`: Métricas acumulativas (muertes CaC, flechas disparadas, bloques corridos, bloqueos, kills élite).
-* `cooldowns: Map<ResourceLocation, Integer>`: Enfriamientos activos medidos en ticks ($1\text{ s} = 20\text{ ticks}$).
-* `equippedSkills: List<ResourceLocation>`: Vector acotado a $N_{\text{max}} = 8$ ranuras para la rueda radial.
-* `primaryBranch: ResourceLocation` / `secondaryBranch: ResourceLocation`: Asignaciones fijas de especialización.
-* `activeToggles: Set<ResourceLocation>`: Registro de posturas activadas con drenaje periódico de maná.
-* `spellMemory: CraftedSpell[4]`: Ranuras de memoria para hechizos modulares customizados.
-* `currentMana: float` / `maxMana: float`: Escalares del recurso mágico.
-* `dashIFrameTicks: int`: Contador de cuadros de inmunidad absoluta transitoria.
+* `unlockedNodes: Set<ResourceLocation>`: Identificadores de habilidades adquiridas.
+* `practiceCounters: Map<ResourceLocation, Integer>`: Métricas acumulativas de combate y desplazamiento.
+* `cooldowns: Map<ResourceLocation, Integer>`: Tiempos de recarga restantes medidos en ticks ($20\text{ ticks} = 1\text{ s}$).
+* `equippedSkills: List<ResourceLocation>`: Vector de habilidades asignadas al menú radial ($N_{\text{max}} = 8$).
+* `primaryBranch: ResourceLocation` / `secondaryBranch: ResourceLocation`: Especializaciones selladas por el jugador.
+* `activeToggles: Set<ResourceLocation>`: Conjunto de posturas activas de drenaje sostenido.
+* `spellMemory: CraftedSpell[4]`: Memoria estática para hechizos personalizados del motor modular.
+* `selectedSkill: ResourceLocation`: Habilidad activa asignada al disparador manual (`[R]`).
+* `currentMana: float` / `maxMana: float`: Reserva energética escalar.
+* `ultimateCharged: boolean`: Acumulador booleano de impacto crítico definitivo.
+* `dashIFrameTicks: int`: Contador decremental de invulnerabilidad absoluta por esquiva.
 
-### 3.2 Esquema de Persistencia NBT
+### 3.2 Esquema NBT
 ```
 TAG_Compound {
     "BranchLevels": TAG_Compound { (String: ResourceLocation) -> TAG_Int },
@@ -69,16 +72,7 @@ TAG_Compound {
     "Cooldowns": TAG_Compound { (String: ResourceLocation) -> TAG_Int },
     "EquippedSkills": TAG_List[TAG_String],
     "ActiveToggles": TAG_List[TAG_String],
-    "SpellMemory": TAG_List[
-        TAG_Compound {
-            "Slot": TAG_Int,
-            "Name": TAG_String,
-            "Element": TAG_String,
-            "Shape": TAG_String,
-            "Timing": TAG_String,
-            "Power": TAG_Int
-        }
-    ],
+    "SpellMemory": TAG_List[TAG_Compound { "Slot": TAG_Int, "Name": TAG_String, ... }],
     "SelectedSkill": TAG_String,
     "PrimaryBranch": TAG_String,
     "SecondaryBranch": TAG_String,
@@ -87,15 +81,15 @@ TAG_Compound {
 }
 ```
 
-### 3.3 Ciclo de Vida y Clonación de Entidad
-Bajo el evento `PlayerEvent.Clone`, los datos se transfieren directamente desde la entidad previa invalidada (`reviveCaps()`) a la nueva entidad. El contador `dashIFrameTicks` se restablece a `0`. Los niveles de ramas superiores al tope base son recortados únicamente si el jugador ejecuta explícitamente `/rpg respec`.
+### 3.3 Ciclo de Vida y Persistencia
+En eventos `PlayerEvent.Clone`, los datos se copian de la entidad muerta mediante `reviveCaps()` hacia la nueva instancia antes de ejecutar `invalidateCaps()`. El estado transitorio `dashIFrameTicks` se inicializa forzosamente en `0`.
 
 ---
 
-## 4. Dinámica de Progresión y Modelos Matemáticos
+## 4. Modelos Matemáticos y Mecánicas de Progresión
 
-### 4.1 Coste de Experiencia por Nivel
-El coste $C(L)$ en niveles de experiencia de Minecraft requerido para ascender de $L$ a $L+1$ se define según la función:
+### 4.1 Coste de Nivel de Experiencia
+Para ascender de un nivel $L$ a $L+1$ en cualquier rama:
 
 $$C(L) = \begin{cases} 
 1 & \text{si } L \le 0 \\
@@ -104,311 +98,259 @@ $$C(L) = \begin{cases}
 \end{cases}$$
 
 ### 4.2 Requisito de Práctica Universal
-El acumulador de práctica específico de la rama $P$ debe satisfacer la condición lineal previa al desembolso de experiencia:
+El acumulador de práctica específico de la rama $P$ debe satisfacer:
 
 $$P \ge K(L+1) = (L + 1) \times 3$$
 
-### 4.3 Fórmulas de Atributos Pasivos
+### 4.3 Límites de Especialización (Caps) y Respec
+* **Ramas Básicas:** Bloqueadas en Nivel 20 si no han sido selladas como especialización.
+* **Rama Secundaria:** Requiere sellado al superar Nivel 20; tope máximo fijado en Nivel 50.
+* **Rama Principal (Maestría):** Requiere sellado al superar Nivel 20; permite alcanzar Nivel 100 y acceder a las Habilidades Definitivas.
+* **Reinicio (`/rpg respec`):** Desvincula ambas especializaciones y recorta todas las ramas que superen el nivel 20 de vuelta a 20.
 
-* **Daño Cuerpo a Cuerpo (`Attributes.ATTACK_DAMAGE`):**
-  $$D_{\text{bonus}}(L_{\text{melee}}) = D_{\text{base}} \times (L_{\text{melee}} \times 0.02)$$
-  *Escalado lineal estricto de $+2\%$ por nivel ($+200\%$ a nivel 100).*
+### 4.4 Pruebas de Ascensión de Combate
+El paso entre niveles clave requiere la ejecución de pruebas contra monstruos élite (`modrpg:elite_kills`):
+* **Nivel 25 $\to$ 26 (Prueba del Iniciado):** Requiere $\ge 3$ monstruos Campeones/Élites eliminados.
+* **Nivel 50 $\to$ 51 (Prueba del Maestro):** Requiere $\ge 10$ monstruos Campeones/Élites eliminados.
+* **Nivel 75 $\to$ 76 (Prueba del Gran Maestro):** Requiere $\ge 25$ monstruos Campeones/Élites eliminados.
 
-* **Velocidad de Movimiento (`Attributes.MOVEMENT_SPEED`):**
-  $$V_{\text{bonus}}(L_{\text{mobility}}) = \left(\frac{L_{\text{mobility}}}{100}\right)^{1.5} \times 0.08$$
+### 4.5 Modificadores de Atributos Físicos
 
-* **Factor de Mitigación Defensiva:**
-  $$F_{\text{defensa}}(L_{\text{defense}}) = \max\left(0.60, 1.0 - \left(\frac{L_{\text{defense}}}{100}\right)^{1.4} \times 0.40\right)$$
-  *Atenuación escalar del daño entrante antes del cálculo de armadura (Mitigación máxima: $40\%$).*
+#### Daño Cuerpo a Cuerpo (`Attributes.ATTACK_DAMAGE`)
+Incremento aditivo transitorio:
 
-* **Escalado de Proyectiles (`AbstractArrow`):**
-  $$M_{\text{distancia}}(L_{\text{ranged}}) = 1.0 + \left(\frac{L_{\text{ranged}}}{100}\right)^{1.5} \times 2.5$$
+$$D_{\text{bonus}}(L_{\text{melee}}) = D_{\text{base}} \times (L_{\text{melee}} \times 0.02)$$
 
-* **Capacidad y Regeneración de Maná:**
-  $$M_{\text{max}} = 100.0 + (L_{\text{magic}} \times 2.0)$$
-  $$R_{\text{mana}} = 2.0 \times \left(1.0 + L_{\text{magic}} \times 0.05\right) \quad [\text{puntos/segundo}]$$
-  $$\Delta M_{\text{tick}} = \frac{R_{\text{mana}}}{20} \quad [\text{por tick de servidor}]$$
+*Escalado estrictamente lineal: $+2\%$ de daño base por nivel ($+200\%$ a nivel 100, multiplicador neto $\times 3.0$).*
 
-* **Altura de Paso (`ForgeMod.STEP_HEIGHT_ADDITION`):**
-  $$H_{\text{adicional}} = \sum_{k} h_k, \quad h_k = 0.5 \text{ para } k \in \{\text{LightStep, StepBoostMobility20, StepBoostMelee3}\}$$
-  *Rango de adición: $[0.0, 1.5]\text{ m}$. Altura máxima alcanzable: $0.6 + 1.5 = 2.1\text{ m}$.*
+#### Velocidad de Movimiento (`Attributes.MOVEMENT_SPEED`)
+Modificador aditivo transitorio:
 
----
+$$V_{\text{bonus}}(L_{\text{mobility}}) = \left(\frac{L_{\text{mobility}}}{100}\right)^{1.5} \times 0.08$$
 
-## 5. Sistema de Especialización y Pruebas de Ascensión
+#### Mitigación de Daño Defensivo
+Atenuación escalar del daño entrante antes de armadura:
 
-Para prevenir la hiperinflación simultánea de todas las ramas a nivel 100, se impone una matriz de especialización estricta por personaje:
+$$F_{\text{defensa}}(L_{\text{defense}}) = \max\left(0.60, 1.0 - \left(\frac{L_{\text{defense}}}{100}\right)^{1.4} \times 0.40\right)$$
 
-```
-                      [Nivel 1 al 20]
-              (Todas las 5 ramas accesibles)
-                           │
-             ¿Intento de ascenso a Nivel 21?
-             ┌─────────────┴─────────────┐
-             ▼                           ▼
-    Rama Principal               Rama Secundaria
-   (Sellado Permanente)        (Sellado Permanente)
-     Límite: Nivel 100           Límite: Nivel 50
-             │                           │
-  Desbloquea Definitivas        Acceso a Sinergias
-  (Ultracorte / Tormentas)           Híbridas
-```
+*Mitigación máxima: $40\%$ a nivel 100 ($F = 0.60$).*
 
-* **Tope Base:** Toda rama no designada tiene un límite duro fijado en **Nivel 20**.
-* **Rama Principal:** Permite ascender hasta **Nivel 100**. Solo puede elegirse una.
-* **Rama Secundaria:** Permite ascender hasta **Nivel 50**. Solo puede elegirse una.
-* **Comando `/rpg respec`:** Disuelve los sellos asignados y trunca hacia abajo los niveles de rama que superen 20, devolviendo los puntos a la escala base sin devolver experiencia gastada.
+#### Daño de Proyectiles (`AbstractArrow`)
+Multiplicador escalar de daño directo:
 
-### Pruebas de Combate de Ascensión (Hit Milestone Checks)
-El ascenso a rangos superiores exige la eliminación verificada de monstruos élite (`modrpg:elite_kills`):
-1. **Nivel 25 $\to$ 26 (Prueba del Iniciado):** Requiere $\ge 3$ Monstruos Campeones / Casters abatidos.
-2. **Nivel 50 $\to$ 51 (Prueba del Maestro):** Requiere $\ge 10$ Monstruos Campeones abatidos.
-3. **Nivel 75 $\to$ 76 (Prueba del Gran Maestro):** Requiere $\ge 25$ Monstruos Campeones abatidos.
+$$M_{\text{distancia}}(L_{\text{ranged}}) = 1.0 + \left(\frac{L_{\text{ranged}}}{100}\right)^{1.5} \times 2.5$$
+
+#### Reserva y Regeneración de Maná
+* **Capacidad Máxima:** $M_{\text{max}} = 100.0 + (L_{\text{magic}} \times 2.0)$
+* **Tasa de Regeneración:** $R_{\text{mana}} = 2.0 \times (1.0 + L_{\text{magic}} \times 0.05)\text{ puntos/segundo}$
+* **Regeneración por Tick:** $\Delta M_{\text{tick}} = \frac{R_{\text{mana}}}{20}$
+
+#### Altura de Paso (`ForgeMod.STEP_HEIGHT_ADDITION`)
+Modificador aditivo acumulativo condicionado al estado de los nodos:
+
+$$H_{\text{adicional}} = \sum_{k} h_k, \quad h_k = 0.5 \text{ para } k \in \{\text{LightStep, StepBoostMobility20, StepBoostMelee3}\}$$
+
+*Rango de adición: $[0.0, 1.5]\text{ bloques}$. Altura máxima resultante: $0.6 + 1.5 = 2.1\text{ bloques}$ (permite remontar 2 bloques sin saltar).*
 
 ---
 
-## 6. Motor de Magia Modular y Reacciones Elementales
+## 5. Catálogo de Habilidades por Rama
 
-El subsistema modular desacopla la lógica de lanzamiento en tres dimensiones paramétricas:
+### 5.1 Cuerpo a Cuerpo (`modrpg:melee`)
+* `modrpg:melee_step_boost_3`: Pasiva. $+0.5\text{ m}$ de altura de paso. Req: Nvl 3.
+* `modrpg:melee_double_attack`: Pasiva/Activa. Con barra de carga $\ge 92\%$, asesta un segundo impacto recursivo al $80\%$ del daño neto. Req: Nvl 4.
+* `modrpg:melee_unarmed_style`: Pasiva. $+10\%$ daño sin armas equipadas; $-5\%$ de daño si porta armas. Req: Nvl 4, `double_attack`.
+* `modrpg:melee_weapon_mastery`: Pasiva. $+15\%$ daño con `TieredItem`. $15\%$ de probabilidad de consumir $+1$ durabilidad extra. Req: Nvl 8, `double_attack`.
+* `modrpg:melee_leg_trip`: Activa. AABB $3.5 \times 1.0 \times 3.5$. Inflige $1.0\times D_{\text{base}}$, anula inercia y aplica Lentitud IV ($60\text{ ticks}$). Cooldown: $8\text{ s}$. Req: Nvl 6, `unarmed_style`.
+* `modrpg:melee_wide_sweep`: Activa. Barrido horizontal de $180^\circ$ en radio de $4.0\text{ m}$. Aplica $1.25\times D_{\text{base}}$ y repulsión. Cooldown: $5\text{ s}$. Req: Nvl 12, `weapon_mastery`.
+* `modrpg:melee_ether_dual_sword`: Pasiva/Activa. Ataques con espada invocan una hoja espectral en mano secundaria infligiendo $+75\%$ de daño de tipo mágico indirecto. Req: Nvl 5 Melee, Nvl 6 Magic, `double_attack`.
+* `modrpg:melee_berserker_stance`: Pasiva Conmutable (Toggle). Otorga $+30\%$ de daño infligido pero aumenta el daño recibido un $+15\%$. Drena $4.5\text{ maná/s}$. Req: Nvl 8, `double_attack`.
+* `modrpg:melee_heavy_tornado`: Activa. Torbellino radial de $5.5\text{ m}$. Inflige $(1.5 \times D_{\text{base}}) \times (1.0 + L_{\text{melee}} \times 0.02)$ y propulsa a los enemigos verticalmente ($Y = +0.45$). Cooldown: $8\text{ s}$. Req: Nvl 10, 20 Bajas CaC, `double_attack`.
+* `modrpg:melee_vital_cleave`: Activa. Estocada que inflige el $10\%$ de la salud actual del enemigo. Cooldown dinámico: $CD = \min(400, 200 + \lfloor D_{\text{causado}} \times 4.0 \rfloor)\text{ ticks}$. Coste: $15\text{ maná}$. Req: Nvl 15, `heavy_tornado`.
+* `modrpg:melee_megacut`: Activa. Proyección frontal de $12\text{ m}$. Inflige $3.0\times D_{\text{base}}$ en AABB cónico ($r \le 1.5\text{ m}$). Cooldown: $20\text{ s}$. Req: Nvl 50, 100 Bajas CaC, `heavy_tornado`.
+* `modrpg:melee_ultracut`: Definitiva (Ultimate). Carga el filo. El próximo ataque físico produce un $+500\%$ de daño crítico ($5.0\times$) con onda expansiva del $50\%$ en $6.0\text{ m}$. Cooldown: $10\text{ min}$ tras el impacto. Req: Nvl 100, 250 Bajas CaC, `megacut`.
 
-$$\text{Daño} = \text{Base}(\text{Elemento}) \times \text{Mod}(\text{Forma}) \times \text{Mod}(\text{Cadencia}) \times [1.0 + (\text{Power} - 1) \times 0.15]$$
-$$\text{Coste Maná} = \text{BaseMana}(\text{Elemento}) \times \text{ModMana}(\text{Forma}) \times \text{ModMana}(\text{Cadencia})$$
-$$\text{Cooldown [ticks]} = \max\left(5, \text{BaseCD}(\text{Elemento}) \times \text{ModCD}(\text{Forma}) \times \text{ModCD}(\text{Cadencia})\right)$$
+### 5.2 Arquería (`modrpg:ranged`)
+* `modrpg:ranged_tailwind`: Pasiva. Vector de velocidad de flechas multiplicado por $\times 1.8$. Req: Nvl 5.
+* `modrpg:ranged_rapid_fire`: Activa. Dispara instantáneamente 6 proyectiles con dispersión y bonificación de daño base $\times 1.2$. Cooldown: $15\text{ s}$. Req: Nvl 12, `tailwind`.
+* `modrpg:ranged_homing_arrow`: Activa. Localiza objetivos en $25\text{ m}$ y dispara una flecha teledirigida con daño $\times 1.8$. Si no hay objetivos, impone $20\text{ s}$ de cooldown de penalización. Cooldown base: $10\text{ s}$. Req: Nvl 16, `tailwind`.
+* `modrpg:ranged_crossbow_artillery`: Pasiva. Cohetes disparados con ballestas detonan ondas sónicas infligiendo $+15.0 + (L_{\text{ranged}} \times 0.5)$ de daño adicional. Req: Nvl 20, 30 Bajas Ranged, `tailwind`.
+* `modrpg:ranged_hypersonic`: Pasiva. Flechas disparadas agachado (`Shift`) viajan a velocidad $\times 1.5$, sin gravedad (`NoGravity`) y con penetración de 5 entidades. Req: Nvl 50, `tailwind`.
 
-### 6.1 Catálogo de Parámetros Modulares
+### 5.3 Magia e Invocación (`modrpg:magic`)
+* `modrpg:magic_fireball`: Activa. Proyección de fuego en 10 bloques. Inflige $8.0 + (L_{\text{magic}} \times 0.4)$ de daño mágico e ignición. Coste: $20\text{ maná}$. Cooldown: $5\text{ s}$. Req: Nvl 3.
+* `modrpg:magic_healing_aura`: Activa. Restaura $6.0 + (L_{\text{magic}} \times 0.2)\text{ PV}$, limpia estados alterados y confiere Regeneración II por $5\text{ s}$. Coste: $35\text{ maná}$. Cooldown: $12\text{ s}$. Req: Nvl 6, `fireball`.
+* `modrpg:magic_necrotic_drain`: Pasiva. Cura al usuario el $\max(1.0, D_{\text{infligido}} \times 0.15)\text{ PV}$ al impactar. Req: Nvl 15, `fireball`.
+* `modrpg:magic_earth_tune`: Activa. Sintoniza con bloques de tierra/piedra/arena. Consume $4.0$ puntos de saturación de hambre y restaura $40.0\text{ de maná}$. Cooldown: $10\text{ s}$. Req: Nvl 8, `fireball`.
+* `modrpg:magic_counter_attack`: Activa. Postura defensiva por $1.5\text{ s}$. Anula el daño entrante y contraataca a 2 enemigos con $18.0$ de daño mágico. Coste: $25\text{ maná}$. Cooldown: $12\text{ s}$. Req: Nvl 12, `fireball`.
+* `modrpg:magic_lightning_chain`: Activa. Descarga un arco voltaico que salta entre 3 enemigos en un radio de $8.0\text{ m}$ infligiendo $10.0 + (L_{\text{magic}} \times 0.3)$ de daño. Coste: $30\text{ maná}$. Cooldown: $7\text{ s}$. Req: Nvl 20, `fireball`.
+* `modrpg:magic_summon_zombies`: Activa. Invoca 5 zombies infantes blindados durante $20\text{ s}$. Coste: $45\text{ maná}$. Cooldown: $20\text{ s}$. Req: Nvl 10, `fireball`.
+* `modrpg:magic_summon_skeletons`: Activa. Invoca 2 esqueletos arqueros con cascos durante $25\text{ s}$. Coste: $50\text{ maná}$. Cooldown: $25\text{ s}$. Req: Nvl 15, `summon_zombies`.
+* `modrpg:magic_bee_swarm`: Activa. Asigna 4 abejas enfurecidas contra el objetivo apuntado ($\cos \theta \ge 0.70$) durante $8\text{ s}$. Coste: $35\text{ maná}$. Cooldown: $12\text{ s}$. Req: Nvl 12, `fireball`.
+* `modrpg:magic_summon_wolves`: Activa. Invoca 3 lobos espectrales domesticados durante $15\text{ s}$. Coste: $40\text{ maná}$. Cooldown: $18\text{ s}$. Req: Nvl 16, `bee_swarm`.
+* `modrpg:custom_spell_[1-4]`: Activas. Disparan los hechizos modulares guardados en las ranuras de memoria 1 a 4. Req: Nvl 1, 10, 25 y 50 respectivamente.
 
-* **Elementos (`SpellElement`):**
-  * `FIRE`: Base Dmg: 8.0, Maná: 18.0, CD: 40t. Aplica ignición.
-  * `LIGHTNING`: Base Dmg: 7.0, Maná: 22.0, CD: 50t. Arco secundario a entidad cercana.
-  * `FROST`: Base Dmg: 6.0, Maná: 16.0, CD: 40t. Aplica `Slowness III` (60t).
-  * `VOID`: Base Dmg: 9.0, Maná: 26.0, CD: 60t. Vampirismo (cura 20% del daño infligido).
-  * `HOLY`: Base Dmg: 7.0, Maná: 20.0, CD: 45t. Daño crítico a no-muertos y pulsos de autosanación.
-* **Formas (`SpellShape`):**
-  * `PROJECTILE`: Multiplicador $\times 1.00$. Entidad física `MagicProjectileEntity`.
-  * `BEAM`: Multiplicador $\times 0.90$. Escaneo de rayo instantáneo en 16 bloques.
-  * `GROUND_AOE`: Multiplicador $\times 1.30$. Runa de impacto volumétrico ($6 \times 3 \times 6\text{ m}$).
-  * `SELF_AURA`: Multiplicador $\times 0.80$. Explosión radial centrada en el ejecutor ($8\text{ m}$).
-  * `TOUCH`: Multiplicador $\times 1.40$. Impacto frontal concentrado a corto alcance ($2.5\text{ m}$).
-* **Cadencia / Timing (`SpellTiming`):**
-  * `RAPID_FIRE`: Daño $\times 0.35$, Maná $\times 0.35$, CD $\times 0.15$ (~6 ticks por casteo).
-  * `BALANCED`: Factores neutrales $\times 1.00$.
-  * `HEAVY_BURST`: Daño $\times 2.60$, Maná $\times 2.20$, CD $\times 3.20$.
+### 5.4 Movilidad (`modrpg:mobility`)
+* `modrpg:mobility_light_step`: Pasiva. $+0.5\text{ m}$ de altura de paso. Req: Nvl 2.
+* `modrpg:mobility_dash`: Activa. Impulso horizontal $\vec{V} \times 1.5$ e invulnerabilidad absoluta durante $15\text{ ticks}$ ($0.75\text{ s}$). Cooldown: $3\text{ s}$. Req: Nvl 10, `light_step`.
+* `modrpg:mobility_air_jump`: Activa. Impulso vertical $Y = +0.95$ conservando momento e inmunidad al siguiente daño de caída. Cooldown: $4\text{ s}$. Req: Nvl 20, `light_step`.
+* `modrpg:mobility_flurry_of_strikes`: Activa. Velocidad III por $10\text{ s}$ e impulso hacia adelante ($Y = 1.10$). Cooldown: $12\text{ s}$. Req: Nvl 10, `dash`.
+* `modrpg:mobility_impact_jump`: Activa. Impulso vertical $Y = 1.65$. Al impactar contra el suelo detona una explosión de $150.0\text{ de daño}$ en $5.5\text{ m}$ con repulsión de $1.8$. Cooldown: $15\text{ s}$. Req: Nvl 15, `air_jump`.
+* `modrpg:mobility_step_boost_20`: Pasiva. $+0.5\text{ m}$ de altura de paso. Req: Nvl 20, `light_step`.
 
-### 6.2 Matriz de Reacciones Elementales en Cadena (`ElementalReactionManager`)
-Al impactar, la entidad recibe un cebador (`Primer`) que persiste durante 100 ticks (5 s). La colisión de un elemento secundario distinto desencadena una reacción inmediata:
+### 5.5 Defensa (`modrpg:defense`)
+* `modrpg:defense_stone_skin`: Pasiva. Mitiga el daño entrante final en un $20\%$. Req: Nvl 3.
+* `modrpg:defense_push_and_wear`: Pasiva. Ataques aplican empuje $1.5$ y dañan $5$ puntos de durabilidad del arma enemiga. Req: Nvl 8, `stone_skin`.
+* `modrpg:defense_iron_strength`: Activa. Durante $12\text{ s}$, los ataques entrantes se anulan y curan $+2.5\text{ PV}$ al jugador por golpe recibido. Cooldown: $30\text{ s}$. Req: Nvl 14, `stone_skin`.
+* `modrpg:defense_iron_fortress`: Activa. Confiere Resistencia III y Absorción II durante $10\text{ s}$. Cooldown: $30\text{ s}$. Req: Nvl 20, `iron_strength`.
 
-| Elemento Base | Elemento Detonador | Nombre de Reacción | Efecto Físico / Mecánico |
-| :---: | :---: | :---: | :--- |
-| **Hielo** | **Rayo** | **Superconductor** | Detonación sónica en radio de $5\text{ m}$. Inflige 14.0 de daño mágico plano y aplica `Weakness II` durante $120\text{ ticks}$. |
-| **Fuego** | **Vacío** | **Colapso Gravitatorio** | Genera un vórtice gravitacional en radio de $6\text{ m}$. Atrae a todos los enemigos al epicentro, quema por 5s e inflige 12.0 de daño. |
-| **Fuego** | **Sagrado** | **Pira Purificadora** | Duplica el daño base si el objetivo es no-muerto, incinera por 8s y emite una onda sanadora que restaura $+6\text{ PV}$ al ejecutor. |
-| **Hielo** | **Vacío** | **Fragilidad Abisal** | Inmoviliza al objetivo (`Slowness V`, 80t) e inyecta la etiqueta `modrpg_brittle_ice`. El siguiente impacto físico directo inflige un **$+50\%$ de daño neto**. |
-
----
-
-## 7. Inteligencia Artificial Táctica y Escuadrones (Modelo F.E.A.R.)
-
-Las entidades hostiles parametrizadas por `EnemyRpgManager` operan bajo una estructura de mando coordinada en red (`SquadCoordinator`).
-
-```
-                    ┌────────────────────────────┐
-                    │    LÍDER COMANDANTE ÉLITE  │
-                    │   (Aura Velocidad/Defensa) │
-                    └─────────────┬──────────────┘
-                                  │
-          ┌───────────────────────┴───────────────────────┐
-          ▼                                               ▼
-┌───────────────────────────┐                   ┌───────────────────────────┐
-│     VANGUARDIA BRUTA      │ ◄──[Petición Peel]│      CASTERS A DISTANCIA  │
-│  (Intercepción / Bloqueo) │                   │  (Requieren Token de Tiro)│
-└───────────────────────────┘                   └───────────────────────────┘
-```
-
-### 7.1 Gestión de Tokens de Disparo (Anti-Spam)
-Para evitar la saturación arbitraria de proyectiles en pantalla, el escuadrón mantiene un único `castingTokenHolder`. Un mob solo puede canalizar habilidades si el token está libre o le pertenece, reteniéndolo durante un máximo de $40\text{ ticks}$ (2 s).
-
-### 7.2 Protocolo de Rescate (*Peeling*)
-Si una entidad de rango o caster recibe aproximación del jugador a menos de $5\text{ m}$, emite una señal de auxilio (`requestPeel`). Las unidades de vanguardia frontal (`isAggressiveRush`) anulan temporalmente sus objetivos y cargan directamente contra el agresor con multiplicador de velocidad $\times 1.40$ y rugidos disuasorios.
-
-### 7.3 Flanqueo Trigonométrico Cruzado
-Los tiradores y casters no atacan en línea recta. Calculan vectores de posición lateral a $60^\circ - 90^\circ$ respecto a la trayectoria frontal del jugador:
-
-$$\vec{P}_{\text{flanco}} = \vec{P}_{\text{target}} - (\vec{F} \times 10.0) + (\vec{F}_{\perp} \times 6.0)$$
-
-### 7.4 Ruptura de Moral (*Morale Break*)
-La eliminación del Líder Comandante activa `triggerMoraleBreak`: emite el sonido de cuerno de asalto (`SoundEvents.RAID_HORN`) y aplica a todos los miembros sobrevivientes del escuadrón en un radio de $20\text{ m}$ los efectos `Slowness III` y `Weakness II` durante $60\text{ ticks}$ (3 s), interrumpiendo totalmente su navegación.
-
-### 7.5 Afijos de Campeones (`ChampionAffix`)
-Los monstruos élite pueden generarse con uno de los siguientes modificadores permanentes:
-* `COMMANDER`: Casco dorado, resistencia a empuje $+0.3$, emite pulso de aura en $12\text{ m}$ que otorga `Speed I` y `Resistance I` a sus aliados cada segundo.
-* `RUNIC_SHIELD`: Porta un escudo secundario; intercepta y anula el 100% de flechas y proyectiles recibidos dentro de su cono de visión frontal ($\cos \theta > 0.2$).
-* `VAMPIRIC`: Daño físico incrementado en $+20\%$; regenera salud equivalente al $25\%$ del daño neto causado.
-* `MANA_BURN`: Porta un fragmento de amatista; cada impacto exitoso sobre un jugador drena $20.0$ puntos de su reserva de maná.
+### 5.6 Sinergias Híbridas
+* `modrpg:hybrid_hunter`: Pasiva. Flechas marcan objetivos (`Glowing`). Remates cuerpo a cuerpo consumen la marca e infligen $+150\%$ de daño de vacío ($2.5\times$). Req: Nvl 25 Melee, Nvl 25 Ranged.
+* `modrpg:hybrid_arrow_propulsion`: Pasiva. Disparar al suelo con inclinación $> 55^\circ$ impulsa al jugador por el aire ($Y = 1.35$) con Caída Lenta por $4\text{ s}$. Cooldown: $3\text{ s}$. Req: Nvl 35 Melee, Nvl 30 Ranged, `hybrid_hunter`.
+* `modrpg:hybrid_sword_quiver`: Pasiva. Las flechas suman $+1.5\times$ del atributo `ATTACK_DAMAGE` CaC del usuario como daño plano adicional. Req: Nvl 70 Melee, Nvl 50 Ranged, `hybrid_hunter`.
+* `modrpg:hybrid_combined_ultimate`: Definitiva Combinada. Desatar el Ultracorte Final genera un bombardeo orbital en $7.0\text{ m}$ que inflige el $40\%$ del daño resultante como daño mágico indirecto. Req: Nvl 100 Melee, Nvl 70 Ranged, `ultracut`, `sword_quiver`.
 
 ---
 
-## 8. Mecánica de Telegrafeado, Interrupción y Postura (*Stagger*)
+## 6. Motor de Magia Modular
 
-El objetivo `TacticalCasterGoal` ejecuta un sistema de telegrafeado visible y contrarrestable mediante dos estados de canalización:
+Los hechizos son configurados en el Altar de Creación (`SpellCraftingScreen`) e instanciados como objetos inmutables `CraftedSpell`.
 
-1. **Canalización Telegrafeada Amarilla (`TAG_INTERRUPTIBLE`):**
-   * **Señal:** Chispas eléctricas brillantes (`ELECTRIC_SPARK`) y sonido de baliza.
-   * **Vulnerabilidad:** Si el jugador asesta un golpe con escala de ataque cargada $\ge 0.85$, la canalización se corta inmediatamente.
-   * **Penalización de Postura Rota (`TAG_STAGGERED`):** El monstruo queda inmóvil durante $40\text{ ticks}$ (2 s), emite partículas de impacto crítico y entra en vulnerabilidad absoluta: **todo golpe recibido durante este estado inflige un $+30\%$ de daño crítico adicional**.
-2. **Canalización Telegrafeada Roja / Imbloqueable:**
-   * **Señal:** Partículas de fuego volcánico (`FLAME`), humo espeso y sonido de latido de Warden.
-   * **Comportamiento:** No puede ser interrumpida físicamente; obliga al jugador a esquivar mediante *Dash* o romper línea de visión.
+### 6.1 Parámetros de Configuración
+1. **Elementos (`SpellElement`):**
+   * `FIRE`: Daño base: $8.0$ | Maná base: $18.0$ | CD base: $40\text{ ticks}$ | Aplica ignición ($4\text{ s}$).
+   * `LIGHTNING`: Daño base: $7.0$ | Maná base: $22.0$ | CD base: $50\text{ ticks}$ | Encadena a una segunda víctima al $50\%$.
+   * `FROST`: Daño base: $6.0$ | Maná base: $16.0$ | CD base: $40\text{ ticks}$ | Aplica Lentitud II ($3\text{ s}$).
+   * `VOID`: Daño base: $9.0$ | Maná base: $26.0$ | CD base: $60\text{ ticks}$ | Drena el $20\%$ del daño como salud al lanzador.
+   * `HOLY`: Daño base: $7.0$ | Maná base: $20.0$ | CD base: $45\text{ ticks}$ | Cura al lanzador en forma de Aura y daña $+75\%$ a no-muertos.
+2. **Formas (`SpellShape`):**
+   * `PROJECTILE`: $1.0\times$ Daño | $1.0\times$ Maná | $1.0\times$ CD (Dispara `MagicProjectileEntity`).
+   * `BEAM`: $0.9\times$ Daño | $1.15\times$ Maná | $0.8\times$ CD (Rayo instantáneo continuo de $16\text{ m}$).
+   * `GROUND_AOE`: $1.3\times$ Daño | $1.35\times$ Maná | $1.4\times$ CD (Runa en suelo de $6.0 \times 3.0 \times 6.0\text{ m}$).
+   * `SELF_AURA`: $0.8\times$ Daño | $1.1\times$ Maná | $1.2\times$ CD (Estallido radial de $4.0\text{ m}$).
+   * `TOUCH`: $1.4\times$ Daño | $0.8\times$ Maná | $0.7\times$ CD (Contacto frontal cuerpo a cuerpo).
+3. **Cadencias (`SpellTiming`):**
+   * `RAPID_FIRE`: $0.35\times$ Daño | $0.35\times$ Maná | $0.15\times$ CD (Ráfagas ultrarrápidas de $\sim 6\text{ ticks}$).
+   * `BALANCED`: $1.0\times$ Daño | $1.0\times$ Maná | $1.0\times$ CD (Equilibrado estándar).
+   * `HEAVY_BURST`: $2.6\times$ Daño | $2.2\times$ Maná | $3.2\times$ CD (Detonación masiva lenta).
+
+### 6.2 Fórmulas de Cálculo
+* **Daño:** $D = D_{\text{base}} \times M_{\text{forma}} \times M_{\text{cadencia}} \times [1.0 + (P - 1) \times 0.15]$
+* **Coste de Maná:** $M = M_{\text{base}} \times M_{\text{forma}} \times M_{\text{cadencia}}$
+* **Cooldown:** $CD = \max(5, \lfloor CD_{\text{base}} \times M_{\text{forma}} \times M_{\text{cadencia}} \rfloor)$
 
 ---
 
-## 9. Catálogo Exhaustivo de Ramas y Habilidades
+## 7. Matriz de Reacciones Elementales
 
-```
-[ÁRBOL COMPLETO DE HABILIDADES]
-├── CUERPO A CUERPO (MELEE)
-│   ├── StepBoostMelee3 [Pasiva: +0.5m paso]
-│   ├── DoubleAttack [Evento: Doble golpe al 80%]
-│   ├── UnarmedStyle [Pasiva: +10% puños / -5% armas]
-│   ├── WeaponMastery [Pasiva: +15% armas / desgaste durabilidad]
-│   ├── LegTrip [Activa: Tropezón, derribo y Slowness IV]
-│   ├── WideSweep [Activa: Barrido frontal 180° plano]
-│   ├── BerserkerStance [Toggle: +30% daño, +15% recibido, -4.5 maná/s]
-│   ├── HeavyTornado [Activa: Giro masivo 5.5m y elevación vertical]
-│   ├── VitalCleave [Activa: Daño 10% vida enemiga / CD dinámico]
-│   ├── Megacut [Semidefinitiva: Proyección cortante de 12 bloques]
-│   └── Ultracut [DEFINITIVA: +500% daño crítico en área / 10m CD]
-│
-├── ARQUERÍA (RANGED)
-│   ├── Tailwind [Pasiva: +80% velocidad de flecha]
-│   ├── RapidFire [Activa: Ráfaga inmediata de 6 flechas frontales]
-│   ├── HomingArrow [Activa: Flecha teledirigida en 25m]
-│   ├── CrossbowArtillery [Pasiva: Cohetes causan explosiones sónicas]
-│   └── HypersonicArrow [Pasiva: Disparo agachado perfora 5 mobs sin gravedad]
-│
-├── SINERGIAS HÍBRIDAS
-│   ├── HybridHunter [Sinergia: Flecha marca -> Golpe CaC detona +150%]
-│   ├── ArrowPropulsion [Sinergia: Disparar al piso propulsa hacia arriba]
-│   ├── SwordQuiver [Sinergia: Flechas suman 1.5x daño CaC del jugador]
-│   └── CombinedUltimate [DEFINITIVA HÍBRIDA: Ultracorte invoca lluvia orbital]
-│
-├── MAGIA Y ESPECIFICACIÓN ELEMENTAL
-│   ├── CustomSpellSlots [Ranuras 1 a 4 para Magia Modular crafteada]
-│   ├── Fireball [Activa: Piroclasto volumétrico lineal]
-│   ├── HealingAura [Activa: Cura instantánea, remueve veneno/wither]
-│   ├── NecroticDrain [Pasiva: Cura pasiva 15% del daño infligido]
-│   ├── EarthTune [Activa: Canaliza el suelo, cambia comida por maná]
-│   ├── CounterAttack [Activa: Bloqueo de 1.5s -> Detona contraataque mágico]
-│   ├── LightningChain [Activa: Arco eléctrico encadenado entre 3 entidades]
-│   ├── SummonZombies [Invocación: 5 infantes blindados aliados por 20s]
-│   ├── SummonSkeletons [Invocación: 2 arqueros fantasmales por 25s]
-│   ├── BeeSwarm [Invocación: 4 abejas hostiles fijadas al objetivo]
-│   └── SummonWolves [Invocación: 3 lobos espectrales domados por 15s]
-│
-├── MOVILIDAD
-│   ├── LightStep [Pasiva: +0.5m altura de paso]
-│   ├── Dash [Activa: Impulso horizontal instantáneo con 15 ticks de i-frames]
-│   ├── AirJump [Activa: Salto vertical sin daño de impacto de caída]
-│   ├── FlurryOfStrikes [Activa: Velocidad III por 10s + Salto kinético]
-│   ├── ImpactJump [Activa: Lanzamiento vertical -> Ground slam de 150 dmg]
-│   └── StepBoostMobility20 [Pasiva: +0.5m altura de paso]
-│
-└── DEFENSA
-    ├── StoneSkin [Pasiva: Mitigación plana -20% daño recibido]
-    ├── PushAndWear [Pasiva: Empuje aumentado y daño a durabilidad enemiga]
-    ├── IronStrength [Activa: 12s de invulnerabilidad, cada golpe cura 2.5 PV]
-    └── IronFortress [Activa: Resistencia III y Absorción II por 10s]
-```
+El subsistema `ElementalReactionManager` rastrea cebados elementales (`modrpg_primer_elem`) en entidades durante $100\text{ ticks}$ ($5\text{ s}$). Si un elemento opuesto impacta antes de su decaimiento, detona una reacción:
+
+| Reacción | Elementos | Efecto Mecánico |
+| :--- | :---: | :--- |
+| **Superconductor** | Hielo + Rayo | Detonación sónica en radio de $5.0\text{ m}$. Inflige $14.0$ de daño y aplica Debilidad II por $6\text{ s}$ (-4 ataque y vulnerabilidad física). |
+| **Colapso Gravitatorio** | Fuego + Vacío | Vórtice en radio de $6.0\text{ m}$. Succiona a los enemigos hacia el centro con vector $0.85$, inflige $12.0$ de daño e ignición por $5\text{ s}$. |
+| **Pira Purificadora** | Fuego + Sagrado | Detonación que cura $+6.0\text{ PV}$ al lanzador, inflige ignición por $8\text{ s}$ y causa daño duplicado contra objetivos no-muertos. |
+| **Fragilidad Abisal** | Hielo + Vacío | Aplica Lentitud V por $4\text{ s}$ y etiqueta con `modrpg_brittle_ice`. **El siguiente impacto físico directo rompe el hielo e inflige un $+50\%$ de daño.** |
+
+---
+
+## 8. Sistema de Postura, Telegrafeado e Interrupción (Stagger)
+
+Las entidades con IA avanzada (`TacticalCasterGoal`) canalizan habilidades con señales visuales y sonoras explícitas:
+
+* **Telegrafeado Amarillo (`modrpg_interruptible_charge`):**
+  * Señal: Partículas eléctricas y sonido de baliza ambiental. Canalización de $20\text{ ticks}$.
+  * **Mecánica de Interrupción:** Si un jugador impacta a la entidad con un ataque cargado ($\ge 85\%$ de fuerza de ataque), se gatilla `interruptCaster()`.
+  * **Efecto de Rotura de Postura:** La entidad recibe `modrpg_staggered` por $40\text{ ticks}$ ($2\text{ s}$), se detiene su navegación, se cancela su lanzamiento, libera su token de escuadrón y **recibe un $+30\%$ de daño adicional**.
+* **Telegrafeado Rojo Inbloqueable:**
+  * Señal: Partículas de fuego y latido de Warden. Canalización de $25\text{ ticks}$.
+  * Inmune a interrupción. Exige esquiva obligatoria con `Dash` o bloqueo direccional.
+
+---
+
+## 9. Inteligencia Artificial Enemiga, Escuadrones F.E.A.R. y Campeones
+
+### 9.1 Arquetipos Tácticos (`EnemyArchetype`)
+Los monstruos generados son inicializados de forma probabilística según la dificultad regional y el nivel promedio de los jugadores cercanos:
+* `CRYO_SNIPER` (Esqueletos): Distancia preferida $15\text{ m}$, retrocede si el jugador se acerca a $< 7\text{ m}$. Magia de Hielo en Proyectil.
+* `FLAME_JUGGERNAUT` (Zombies): Asalto frontal agresivo sin kiting, $+15\text{ PV}$, $+0.4$ resistencia a empuje. Magia de Fuego en Aura.
+* `CRYPT_NECROMANCER` (Esqueletos/Wither): Distancia $12\text{ m}$. Magia de Vacío en Runa de Área. Invoca sirvientes zombi y realiza saltos evasivos.
+* `VOID_WEAVER` (Arañas): Distancia de acoso $6.5\text{ m}$. Magia de Vacío en Rayo instantáneo.
+* `STORM_EVOKER` (Brujas): Distancia $11\text{ m}$. Proyectiles eléctricos en ráfaga rápida y autocuración al caer a $< 40\%$ de vida.
+
+### 9.2 Coordinador de Escuadrones (`SquadCoordinator`)
+* **Tokens de Disparo:** Los casters de un mismo escuadrón deben reservar el `castingToken` (retención máxima de $40\text{ ticks}$) para evitar saturar al jugador con múltiples proyectiles simultáneos.
+* **Maniobras de Peeling (Rescate):** Si un caster a distancia es acosado a $< 5\text{ m}$, emite una señal de auxilio (`requestPeel`). La vanguardia frontal (`FLAME_JUGGERNAUT`) interrumpe su curso actual y carga a velocidad $1.4\times$ contra el agresor.
+* **Flanqueo Cruzado:** Los casters buscan posiciones angulares desplazadas entre $60^\circ$ y $90^\circ$ respecto a la línea de visión del jugador con los tanques.
+* **Ruptura de Moral:** Si el Líder Comandante del escuadrón es abatido, se reproduce un cuerno de asalto (`RAID_HORN`), los miembros supervivientes quedan inmovilizados, aturdidos por pánico durante $3\text{ s}$ (Lentitud III, Debilidad II) y su navegación se reinicia.
+
+### 9.3 Afijos de Campeones (`ChampionAffix`)
+Los líderes de escuadrón pueden ascender a Campeones ($+35\%$ de salud, nombre visible y prefijo):
+* `COMMANDER` (`[Comandante]`): Casco dorado, $+0.3$ resistencia a empuje. Emite un aura cada segundo que otorga Velocidad I y Resistencia I a los monstruos aliados en un radio de $12\text{ m}$.
+* `RUNIC_SHIELD` (`[Escudo Rúnico]`): Porta escudo en mano secundaria. Bloquea y desvía todo proyectil o flecha frontal que impacte dentro de su cono de visión ($\vec{L} \cdot \vec{P} > 0.2$).
+* `VAMPIRIC` (`[Vampírico]`): $+20\%$ daño base. Cura el $25\%$ del daño infligido al atacar.
+* `MANA_BURN` (`[Quemador de Maná]`): Porta fragmento de amatista. Drena $20.0$ puntos de maná del jugador por cada golpe asestado.
 
 ---
 
 ## 10. Subsistema de Esbirros e Invocaciones (`MinionHelper`)
 
-* **Identificación Atómica:** Los esbirros generados portan las etiquetas `modrpg_minion` y `modrpg_owner_<UUID>`.
-* **Tiempo de Vida Finito (`modrpg_lifespan`):** Controlado en `LivingEvent.LivingTickEvent`. Al expirar el contador de ticks, la entidad se desvanece de forma limpia mediante `.discard()`.
-* **Fuego Amigo Inviolable:** `LivingAttackEvent` intercepta y cancela de manera irrevocable cualquier interacción dañina entre el jugador y sus esbirros o entre esbirros que compartan el mismo propietario.
-* **Retesteo Dinámico de Agresión:** Al momento en que el jugador inflige daño a cualquier entidad enemiga, se ejecuta `redirectMinionsTarget()`, reescribiendo la IA de combate de todos los esbirros en un radio de $16\text{ m}$ para enfocarse en la víctima.
+* **Identificación:** Esbirros marcados con `modrpg_minion` y `modrpg_owner_<UUID>`.
+* **Tiempo de Vida:** Decrementado por tick en `LivingTickEvent` (`modrpg_lifespan`). Al llegar a 0, la entidad se desvanece de forma limpia vía `.discard()`.
+* **Protección de Fuego Amigo:** `LivingAttackEvent` verifica la correlación entre dueño y esbirros o entre esbirros del mismo dueño, cancelando el daño irrevocablemente.
+* **Redirección de Agresión:** Al infligir daño el jugador (`LivingHurtEvent`), todos los esbirros en $16.0\text{ m}$ reorientan su IA hacia el objetivo atacado.
 
 ---
 
-## 11. Protocolo de Red (`modrpg:main` v8)
+## 11. Capa de Presentación, GUIs, HUD y Mapeo de Controles
+
+### 11.1 Mapeo de Controles (`KeyBinding`)
+* `[Z]` (`key.modrpg.radial_menu`): Abre la Rueda Radial interactiva.
+* `[K]` (`key.modrpg.open_skills`): Abre la interfaz visual del Árbol de Habilidades.
+* `[O]` (`key.modrpg.spell_crafter`): Abre el Altar de Creación de Hechizos Modulares.
+* `[R]` (`key.modrpg.cast_selected`): Ejecuta la habilidad activa o definitiva seleccionada.
+* `[V]` / `[B]` / `[G]` / `[X]` / `[C]`: Atajos directos para Torbellino, Megacorte, Dash, Piroclasto y Curación.
+
+### 11.2 Pantalla del Árbol de Habilidades (`SkillTreeScreen`)
+* Desplazamiento de cámara libre mediante arrastre y zoom geométrico interactivo $[0.55\times, 1.8\times]$.
+* Renderizado de líneas de unión padre-hijo rotadas en el eje Z mediante matrices de `PoseStack`.
+* Filtrado dinámico por ramas con máscara de atenuación alfa ($0\text{xFF}$ activa, $0\text{x44}$ atenuada).
+* Clic Izquierdo: Compra de nodo / Clic Derecho: Asignación o desasignación en la rueda radial.
+
+### 11.3 Menú Radial (`RadialMenuScreen`)
+* Distribución polar de ranuras: $\theta_i = \frac{2\pi}{N} \cdot i - \frac{\pi}{2}$, $R = 80\text{ px}$.
+* Soporte para selección de activas y alternancia de estado para posturas (`PASSIVE_TOGGLE`).
+
+### 11.4 HUD Overlays
+* `HUD_MANA`: Barra azul situada sobre los muslos de comida. Informa el valor numérico, el drenaje neto por segundo de posturas activas, las insignias de posturas encendidas y el casillero de la habilidad asignada a `[R]`.
+* `HUD_SKILLS`: Pila visual de iconos en la esquina inferior izquierda con sombra y cuenta regresiva en segundos para habilidades en cooldown.
+* `HUD_CHAMPION`: Barra superior de objetivo para Campeones y Casters enfocados en la mira. Muestra nombre completo, vida numérica, borde distintivo (dorado para campeones, púrpura para casters, parpadeo blanco para postura rota) y alertas de estado (elemento cebado o aturdimiento activo).
+
+---
+
+## 12. Protocolo de Red (`modrpg:main`)
 
 Canal bidireccional registrado mediante `NetworkRegistry.newSimpleChannel`.
 
-| ID | Clase Paquete | Flujo | Payload | Descripción Funcional |
+| ID | Clase | Dirección | Carga Útil (Payload) | Descripción / Lógica |
 | :---: | :--- | :---: | :--- | :--- |
-| `0` | `PacketCastSkill` | C $\to$ S | `ResourceLocation skillId` | Valida prerrequisitos, descuenta maná, asigna cooldown y dispara `onExecuteActive()`. |
-| `1` | `PacketSyncSkillsToClient` | S $\to$ C | Mapas completos de ramas, nodos, cooldowns, práctica, loadout, maná, posturas, memoria de hechizos y especializaciones | Reemplaza atómicamente la capability del lado cliente para renderizado exacto. |
-| `2` | `PacketUpgradeSkill` | C $\to$ S | `String branch` | Valida y ejecuta el desembolso de niveles de XP y práctica para ascender de nivel. |
-| `3` | `PacketUnlockNode` | C $\to$ S | `ResourceLocation nodeId` | Evalúa `SkillNode.canUnlock()` consumiendo prerrequisitos e integrando el nodo al grafo. |
-| `4` | `PacketSyncMana` | S $\to$ C | `float currentMana`, `float maxMana` | Sincronización continua de la reserva de maná sin sobrecargar el bus con otros datos. |
-| `5` | `PacketEquipSkill` | C $\to$ S | `ResourceLocation skillId` | Alterna el equipamiento de habilidades activas/definitivas en el vector de la rueda radial ($N \le 8$). |
-| `6` | `PacketSelectSkill` | C $\to$ S | `ResourceLocation skillId` | Marca una habilidad equipada como objetivo del acceso rápido de ejecución (`R`). |
-| `7` | `PacketTogglePassive` | C $\to$ S | `ResourceLocation skillId` | Activa o desactiva posturas sostenidas (`PASSIVE_TOGGLE`) evaluando suficiencia de maná. |
-| `8` | `PacketSaveCraftedSpell` | C $\to$ S | `int slotIndex`, `CompoundTag spellTag` | Escribe un hechizo modular diseñado en la memoria permanente del jugador ($0 \le \text{slot} \le 3$). |
+| `0` | `PacketCastSkill` | C $\to$ S | `ResourceLocation skillId` | Valida adquisición, cooldown y maná. Ejecuta `onExecuteActive()`. |
+| `1` | `PacketSyncSkillsToClient` | S $\to$ C | Mapas completos, sets, spells NBT, especializaciones | Sincronización íntegra de la capability del jugador al hilo de renderizado del cliente. |
+| `2` | `PacketUpgradeSkill` | C $\to$ S | `String branch` | Valida XP, práctica, especializaciones y pruebas de ascensión. Descuenta XP y asciende nivel. |
+| `3` | `PacketUnlockNode` | C $\to$ S | `ResourceLocation nodeId` | Valida prerrequisitos de grafo, niveles y consumo. Desbloquea nodo. |
+| `4` | `PacketSyncMana` | S $\to$ C | `float currentMana, float maxMana` | Sincronización continua de maná cada segundo o tras transacciones. |
+| `5` | `PacketEquipSkill` | C $\to$ S | `ResourceLocation skillId` | Asigna o desequipa nodos de la rueda radial ($N_{\text{max}} = 8$). |
+| `6` | `PacketSelectSkill` | C $\to$ S | `ResourceLocation skillId` | Asigna una habilidad activa al disparador rápido `[R]`. |
+| `7` | `PacketTogglePassive` | C $\to$ S | `ResourceLocation skillId` | Alterna el encendido/apagado de posturas de drenaje sostenido. |
+| `8` | `PacketSaveCraftedSpell` | C $\to$ S | `int slotIndex, CompoundTag spellNBT` | Guarda un hechizo modular en una de las 4 ranuras de memoria. |
 
 ---
 
-## 12. Interfaces de Usuario y Elementos de HUD
+## 13. Interfaz de Comandos (`/rpg`)
 
-### 12.1 Árbol de Habilidades (`SkillTreeScreen` - Tecla `K`)
-* Renderizado matricial con traslación 2D infinita (`scrollX`, `scrollY`) y zoom afín continuo $\in [0.55, 1.8]$.
-* Grafo vectorial con cálculo de rotación polar para el trazado de aristas entre nodos padre e hijos.
-* Pestañas de aislamiento inferior por rama con enmascaramiento por canal alfa ($0\text{xFF}$ para la rama en foco, $0\text{x44}$ para nodos atenuados).
-* Botón contextual de ascenso validando en tiempo real las Pruebas de Ascensión, límites de especialización y niveles de XP requeridos.
-
-### 12.2 Rueda de Selección Radial (`RadialMenuScreen` - Tecla `Z`)
-* Disposición polar de radio fijo ($R = 80\text{ px}$):
-  $$\theta_i = \left(\frac{2\pi}{N}\right) \cdot i - \frac{\pi}{2}$$
-* Soporte nativo para alternar estados de posturas (`PASSIVE_TOGGLE`) mediante bordes cromáticos dinámicos (Verde encendido, Gris apagado).
-* Validación visual de cooldowns activos (overlay oscuro y segundos restantes) y advertencia por falta de maná.
-
-### 12.3 Altar de Creación de Hechizos (`SpellCraftingScreen` - Tecla `O`)
-* Selector visual de combinación elemental, forma y modificador de cadencia.
-* Previsualización analítica en vivo: calcula daño estimado proyectado con atributos del jugador, coste en puntos de maná y tiempo de recarga exacto.
-* Guardado en cualquiera de las 4 ranuras de memoria accesibles mediante los nodos `custom_spell_1` al `4`.
-
-### 12.4 Heads-Up Display (HUD Overlays)
-* **`ManaOverlay`:** Renderizado relativo sobre la barra de armadura/comida. Incluye barra de maná azul, lectura numérica en tiempo real con tasa de drenaje de posturas activas $\text{[-X.X/s]}$, badges de posturas activadas y casillero de la habilidad lista para disparo con tecla `R`.
-* **`SkillCooldownOverlay`:** Barra lateral inferior izquierda que proyecta dinámicamente cada habilidad en enfriamiento con temporizador decremental.
-* **`ChampionOverlay`:** Marco de combate superior estilo barra de jefe que se activa al fijar la retícula sobre un Caster o Monstruo Campeón; muestra barra de salud proporcional, nombre del arquetipo, afijos activos, debilidad por postura rota e indicadores del elemento cebador (`Primer`).
-
----
-
-## 13. Mapeo de Teclas por Defecto
-
-| Tecla | Acción Vinculada | Identificador Interno |
-| :---: | :--- | :--- |
-| `K` | Abrir Árbol de Habilidades | `key.modrpg.open_skills` |
-| `Z` | Abrir Rueda Radial de Selección | `key.modrpg.radial_menu` |
-| `O` | Abrir Altar de Creación de Hechizos | `key.modrpg.spell_crafter` |
-| `R` | Ejecutar Habilidad Activa Seleccionada | `key.modrpg.cast_selected` |
-| `V` | Atajo Rápido: Torbellino Ultrapesado | `key.modrpg.spin_attack` |
-| `B` | Atajo Rápido: Megacorte Frontal | `key.modrpg.megacut` |
-| `G` | Atajo Rápido: Embestida Evasiva (Dash) | `key.modrpg.dash` |
-| `X` | Atajo Rápido: Piroclasto Elemental | `key.modrpg.fireball` |
-| `C` | Atajo Rápido: Aura de Sanación | `key.modrpg.heal` |
-
----
-
-## 14. Subsistema de Comandos de Servidor (`/rpg`)
-
-Todos los comandos se estructuran bajo el nodo `/rpg`:
-
-* `/rpg stats`
-  * **Permiso:** Nivel 0 (Público).
-  * **Salida:** Imprime el estado del personaje: votos de especialización (Principal/Secundaria), niveles de las 5 ramas, métricas de combate acumuladas, maná actual y tasa de regeneración por segundo.
-* `/rpg respec`
-  * **Permiso:** Nivel 0 (Público).
-  * **Salida:** Reinicia los votos de Rama Principal y Secundaria, recortando al límite base de 20 cualquier rama superior para permitir una reasignación de especialización.
-* `/rpg upgrade <branch>`
-  * **Permiso:** Nivel 0 (Público).
-  * **Argumentos:** `branch` (`melee`, `ranged`, `mobility`, `magic`, `defense`).
-  * **Salida:** Ejecuta la compra legítima de nivel validando pruebas de ascensión, práctica y descontando niveles de XP de Minecraft.
-* `/rpg addlevel <branch> <amount>`
-  * **Permiso:** Nivel 2 (Administración / Testing).
-  * **Argumentos:** `branch` (String), `amount` (Entero entre 1 y 100).
-  * **Salida:** Incrementa arbitrariamente el nivel de la rama omitiendo validaciones económicas y sincroniza atributos físicos.
-* `/rpg unlock <skill>`
-  * **Permiso:** Nivel 2 (Administración / Testing).
-  * **Argumentos:** `skill` (Identificador registrado en `SkillRegistry`).
-  * **Salida:** Desbloquea de forma forzada cualquier nodo del árbol ignorando prerrequisitos o niveles de rama.
+* `/rpg stats`: Imprime las especializaciones selladas, niveles por rama, métricas de práctica acumuladas y tasa de regeneración de maná. Permiso: `0`.
+* `/rpg respec`: Reinicia los votos de especialización (principal y secundaria) y recorta los niveles de rama que superen el nivel 20 de vuelta al tope base (20). Permiso: `0`.
+* `/rpg upgrade <branch>`: Asciende un nivel en la rama indicada descontando niveles de XP de Minecraft y validando requisitos de práctica. Permiso: `0`.
+* `/rpg addlevel <branch> <amount>`: Agrega arbitrariamente niveles $[1, 100]$ a una rama y recalcula los modificadores de atributos. Permiso: `2` (Operador).
+* `/rpg unlock <skill>`: Concede de forma forzada una habilidad ignorando requisitos de nivel, XP o prerrequisitos de grafo. Permiso: `2` (Operador).
+```
