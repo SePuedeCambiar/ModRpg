@@ -1,7 +1,10 @@
 package com.example.modrpg.events;
 
 import com.example.modrpg.ModRpg;
+import com.example.modrpg.ai.ChampionAffix;
 import com.example.modrpg.ai.EnemyRpgManager;
+import com.example.modrpg.ai.SquadCoordinator;
+import com.example.modrpg.ai.TacticalCasterGoal;
 import com.example.modrpg.commands.RpgCommands;
 import com.example.modrpg.networking.ModMessages;
 import com.example.modrpg.networking.PacketSyncMana;
@@ -11,6 +14,7 @@ import com.example.modrpg.skills.SkillEconomy;
 import com.example.modrpg.skills.SkillProgression;
 import com.example.modrpg.skills.data.SkillNode;
 import com.example.modrpg.skills.data.SkillRegistry;
+import com.example.modrpg.skills.magic.modular.ElementalReactionManager;
 import com.example.modrpg.skills.nodes.defense.IronStrengthSkill;
 import com.example.modrpg.skills.nodes.magic.MinionHelper;
 import com.example.modrpg.skills.nodes.mobility.AirJumpSkill;
@@ -25,13 +29,17 @@ import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.damagesource.DamageTypes;
+import net.minecraft.world.effect.MobEffectInstance;
+import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.monster.Monster;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.AbstractArrow;
 import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.event.AttachCapabilitiesEvent;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.TickEvent;
@@ -80,7 +88,7 @@ public class ModEvents {
     @SubscribeEvent
     public static void onPlayerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
         if (event.getEntity() instanceof ServerPlayer serverPlayer) {
-            serverPlayer.sendSystemMessage(Component.literal("§a[ModRpg] §f¡Sistema modular RPG cargado con éxito! Usa §e/rpg stats§f para ver tu progreso."));
+            serverPlayer.sendSystemMessage(Component.literal("§a[ModRpg] §f¡Sistema RPG táctico cargado! Usa §e/rpg stats§f para ver tu progreso."));
             SkillAttributes.applyModifiers(serverPlayer);
             SkillEconomy.syncSkills(serverPlayer);
         }
@@ -91,7 +99,9 @@ public class ModEvents {
         RpgCommands.register(event.getDispatcher());
     }
 
-    // 1. Tick de Cooldowns, I-Frames, Drenaje de Posturas, Práctica de Movilidad y Maná
+    // =========================================================================
+    // 1. TICK DE JUGADOR, MANÁ Y ESCUADRONES F.E.A.R.
+    // =========================================================================
     @SubscribeEvent
     public static void onPlayerTick(TickEvent.PlayerTickEvent event) {
         if (event.phase == TickEvent.Phase.END) {
@@ -99,7 +109,7 @@ public class ModEvents {
                 if (!event.player.level().isClientSide()) {
                     skills.tickServerSide();
 
-                    // Control exacto de duración de Fuerza de Hierro (12 segundos = 240 ticks)
+                    // Control de Fuerza de Hierro (12s)
                     if (event.player.getTags().contains(IronStrengthSkill.TAG_IRON_STRENGTH)) {
                         CompoundTag data = event.player.getPersistentData();
                         int timer = data.getInt("modrpg_iron_strength_timer");
@@ -119,7 +129,7 @@ public class ModEvents {
                         }
                     }
 
-                    // Acumulador de práctica de Movilidad por distancia recorrida a pie
+                    // Acumulación de práctica de Movilidad a pie
                     if (event.player instanceof ServerPlayer serverPlayer) {
                         double dx = serverPlayer.getX() - serverPlayer.xOld;
                         double dz = serverPlayer.getZ() - serverPlayer.zOld;
@@ -136,7 +146,7 @@ public class ModEvents {
                         }
                     }
 
-                    // Feedback auditivo si las posturas se desactivan por maná
+                    // Aviso si las posturas se desactivan por maná
                     if (skills.consumeTogglesForceDeactivated() && event.player instanceof ServerPlayer serverPlayer) {
                         serverPlayer.displayClientMessage(
                                 Component.literal("§c§l⚡ ¡MANÁ AGOTADO! §7Tus posturas activas se han desactivado."),
@@ -154,6 +164,11 @@ public class ModEvents {
                                 serverPlayer
                         );
                     }
+
+                    // F.E.A.R. Tick de escuadrones activos
+                    if (event.player.tickCount % 5 == 0) {
+                        SquadCoordinator.tickSquads();
+                    }
                 } else {
                     skills.tickCooldowns();
                 }
@@ -161,40 +176,60 @@ public class ModEvents {
         }
     }
 
-    // 2. Control de tiempo de vida (Lifespan) de esbirros e invocaciones
+    // =========================================================================
+    // 2. TICK DE CRIATURAS, MINIONS, PRIMERS Y AURAS DE COMANDANTE
+    // =========================================================================
     @SubscribeEvent
     public static void onLivingTick(LivingEvent.LivingTickEvent event) {
         LivingEntity entity = event.getEntity();
-        if (!entity.level().isClientSide() && entity.getTags().contains(MinionHelper.TAG_MINION)) {
-            MinionHelper.tickMinion(entity);
+        if (!entity.level().isClientSide()) {
+            if (entity.getTags().contains(MinionHelper.TAG_MINION)) {
+                MinionHelper.tickMinion(entity);
+            }
+
+            // Decaimiento del cebado elemental
+            ElementalReactionManager.tickPrimers(entity);
+
+            // Aura de Comandante de Escuadrón (Sprint 3)
+            if (entity instanceof Monster monster && monster.getTags().contains("modrpg_affix_commander")) {
+                if (monster.tickCount % 20 == 0) {
+                    ServerLevel level = (ServerLevel) monster.level();
+                    ChampionAffix.emitCommanderAura(monster, level);
+
+                    AABB aura = monster.getBoundingBox().inflate(12.0);
+                    List<Monster> allies = level.getEntitiesOfClass(Monster.class, aura, m -> m != monster && m.isAlive());
+                    for (Monster ally : allies) {
+                        ally.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SPEED, 30, 0, false, false));
+                        ally.addEffect(new MobEffectInstance(MobEffects.DAMAGE_RESISTANCE, 30, 0, false, false));
+                    }
+                }
+            }
         }
     }
 
-    // 3. Fuego Amigo + I-Frames del Dash + Fuerza de Hierro
+    // =========================================================================
+    // 3. FUEGO AMIGO + INMUNIDADES + I-FRAMES
+    // =========================================================================
     @SubscribeEvent
     public static void onLivingAttack(LivingAttackEvent event) {
         Entity attacker = event.getSource().getEntity();
         Entity victim = event.getEntity();
 
-        // Inmunidad mutua entre jugador y sus criaturas aliadas
         if (MinionHelper.areAllies(attacker, victim)) {
             event.setCanceled(true);
             return;
         }
 
         if (victim instanceof ServerPlayer player) {
-            // Fuerza de Hierro: Inmunidad y curación reactiva
             if (player.getTags().contains(IronStrengthSkill.TAG_IRON_STRENGTH)) {
                 event.setCanceled(true);
                 player.heal(2.5f);
-
                 ServerLevel level = (ServerLevel) player.level();
                 level.sendParticles(ParticleTypes.HEART, player.getX(), player.getY() + 1.0, player.getZ(), 4, 0.2, 0.2, 0.2, 0.05);
                 level.playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.EXPERIENCE_ORB_PICKUP, SoundSource.PLAYERS, 0.6f, 1.5f);
                 return;
             }
 
-            // Dash: I-Frames de esquiva
             player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
                 if (skills.hasDashIFrames()) {
                     event.setCanceled(true);
@@ -206,13 +241,14 @@ public class ModEvents {
         }
     }
 
-    // 4. Caída: Salto con Impacto y Salto de Viento
+    // =========================================================================
+    // 4. CAÍDA (SALTO SÍSMICO Y SALTO DE VIENTO)
+    // =========================================================================
     @SubscribeEvent
     public static void onLivingFall(LivingFallEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
             ServerLevel level = (ServerLevel) player.level();
 
-            // Salto con Impacto
             if (player.getTags().contains(ImpactJumpSkill.TAG_GROUND_SLAM)) {
                 player.removeTag(ImpactJumpSkill.TAG_GROUND_SLAM);
                 event.setCanceled(true);
@@ -241,22 +277,27 @@ public class ModEvents {
                 return;
             }
 
-            // Salto de Viento
             if (player.getTags().contains(AirJumpSkill.AIR_JUMP_SAFE_TAG)) {
                 player.removeTag(AirJumpSkill.AIR_JUMP_SAFE_TAG);
                 event.setCanceled(true);
-
                 level.sendParticles(ParticleTypes.CLOUD, player.getX(), player.getY(), player.getZ(), 10, 0.3, 0.05, 0.3, 0.05);
                 level.playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.WOOL_FALL, SoundSource.PLAYERS, 1.0f, 1.4f);
             }
         }
     }
 
-    // 5. Registro de Bajas y Práctica (TOTALMENTE CORREGIDO)
+    // =========================================================================
+    // 5. REGISTRO DE BAJAS Y RUPTURA DE MORAL DE ESCUADRÓN
+    // =========================================================================
     @SubscribeEvent
     public static void onLivingDeath(LivingDeathEvent event) {
         LivingEntity victim = event.getEntity();
         if (victim.level().isClientSide() || victim instanceof Player) return;
+
+        // F.E.A.R. Notificar al coordinador de escuadrones por si era el Líder
+        if (victim instanceof Mob mob) {
+            SquadCoordinator.onMobDeath(mob);
+        }
 
         DamageSource source = event.getSource();
         Entity directAttacker = source.getDirectEntity();
@@ -265,14 +306,11 @@ public class ModEvents {
 
         ServerPlayer player = null;
 
-        // A) El atacante directo o mediato es un jugador
         if (trueAttacker instanceof ServerPlayer sp) {
             player = sp;
         } else if (directAttacker instanceof ServerPlayer sp) {
             player = sp;
-        }
-        // B) El mob fue aniquilado por un esbirro invocado del jugador
-        else if (trueAttacker != null && trueAttacker.getTags().contains(MinionHelper.TAG_MINION)) {
+        } else if (trueAttacker != null && trueAttacker.getTags().contains(MinionHelper.TAG_MINION)) {
             for (String tag : trueAttacker.getTags()) {
                 if (tag.startsWith(MinionHelper.TAG_OWNER_PREFIX)) {
                     try {
@@ -282,28 +320,27 @@ public class ModEvents {
                     break;
                 }
             }
-        }
-        // C) Respaldo: Si murió quemado por el sol, caída o fuego tras combate reciente con el jugador
-        else if (victim.getLastHurtByMob() instanceof ServerPlayer sp) {
+        } else if (victim.getLastHurtByMob() instanceof ServerPlayer sp) {
             player = sp;
         }
 
         if (player != null) {
             final ServerPlayer finalPlayer = player;
             player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
-                // Determinar si fue a distancia o cuerpo a cuerpo
-                boolean isRanged = (directAttacker instanceof Projectile) ||
-                        source.is(DamageTypes.ARROW);
+                boolean isRanged = (directAttacker instanceof Projectile) || source.is(DamageTypes.ARROW);
+
+                // Los campeones otorgan +3 puntos adicionales de práctica
+                int practiceReward = victim.getTags().contains("modrpg_champion") ? 4 : 1;
 
                 if (isRanged) {
-                    skills.addPractice(SkillRegistry.COUNTER_RANGED_KILLS, 1);
+                    skills.addPractice(SkillRegistry.COUNTER_RANGED_KILLS, practiceReward);
                     int count = skills.getPractice(SkillRegistry.COUNTER_RANGED_KILLS);
                     finalPlayer.displayClientMessage(
                             Component.literal("§b🏹 ¡Baja a distancia! §7(Total: §e" + count + "§7)"),
                             true
                     );
                 } else {
-                    skills.addPractice(SkillRegistry.COUNTER_MELEE_KILLS, 1);
+                    skills.addPractice(SkillRegistry.COUNTER_MELEE_KILLS, practiceReward);
                     int count = skills.getPractice(SkillRegistry.COUNTER_MELEE_KILLS);
                     finalPlayer.displayClientMessage(
                             Component.literal("§c⚔ ¡Baja cuerpo a cuerpo! §7(Total: §e" + count + "§7)"),
@@ -311,7 +348,6 @@ public class ModEvents {
                     );
                 }
 
-                // Sonido sutil para confirmar que la baja contó
                 level.playSound(null, finalPlayer.getX(), finalPlayer.getY(), finalPlayer.getZ(),
                         SoundEvents.EXPERIENCE_ORB_PICKUP, SoundSource.PLAYERS, 0.5f, 1.8f);
 
@@ -321,7 +357,9 @@ public class ModEvents {
         }
     }
 
-    // 6. Proyectiles
+    // =========================================================================
+    // 6. PROYECTILES
+    // =========================================================================
     @SubscribeEvent
     public static void onArrowSpawn(EntityJoinLevelEvent event) {
         if (!event.getLevel().isClientSide() && event.getEntity() instanceof AbstractArrow arrow) {
@@ -338,23 +376,91 @@ public class ModEvents {
         }
     }
 
-    // 7. Cálculo de Daño, Reenvío a Esbirros y Práctica
+    // =========================================================================
+    // 7. CÁLCULO DE DAÑO, INTERRUPCIONES, REACCIONES Y AFIJOS DE COMBATE
+    // =========================================================================
     @SubscribeEvent
     public static void onLivingHurt(LivingHurtEvent event) {
         Entity attacker = event.getSource().getEntity();
         Entity target = event.getEntity();
 
-        // Si el jugador es quien ataca
+        // ---------------------------------------------------------------------
+        // AFIJO: ESCUDO RÚNICO (Desvía flechas y proyectiles frontales)
+        // ---------------------------------------------------------------------
+        if (target instanceof Monster monster && monster.getTags().contains("modrpg_affix_runic_shield")) {
+            if (event.getSource().getDirectEntity() instanceof Projectile projectile) {
+                Vec3 look = monster.getLookAngle();
+                Vec3 incoming = projectile.position().subtract(monster.position()).normalize();
+                if (look.dot(incoming) < 0.2) {
+                    event.setCanceled(true);
+                    ServerLevel level = (ServerLevel) monster.level();
+                    level.sendParticles(ParticleTypes.ENCHANTED_HIT, projectile.getX(), projectile.getY(), projectile.getZ(), 15, 0.3, 0.3, 0.3, 0.1);
+                    level.playSound(null, monster.getX(), monster.getY(), monster.getZ(), SoundEvents.SHIELD_BLOCK, SoundSource.HOSTILE, 1.2f, 1.5f);
+                    if (attacker instanceof ServerPlayer sp) {
+                        sp.displayClientMessage(Component.literal("§b🛡 ¡El Escudo Rúnico desvió tu flecha frontal! Flanquéalo."), true);
+                    }
+                    return;
+                }
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        // AFIJO: VAMPÍRICO (El monstruo se cura el 25% del daño infligido)
+        // ---------------------------------------------------------------------
+        if (attacker instanceof Monster monster && monster.getTags().contains("modrpg_affix_vampiric")) {
+            float heal = event.getAmount() * 0.25f;
+            monster.heal(heal);
+            if (monster.level() instanceof ServerLevel level) {
+                level.sendParticles(ParticleTypes.DAMAGE_INDICATOR, monster.getX(), monster.getEyeY(), monster.getZ(), 3, 0.2, 0.2, 0.2, 0.05);
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        // AFIJO: QUEMADOR DE MANÁ (Drena 20 de maná al golpear al jugador)
+        // ---------------------------------------------------------------------
+        if (attacker instanceof Monster monster && monster.getTags().contains("modrpg_affix_mana_burn")) {
+            if (target instanceof ServerPlayer player) {
+                player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
+                    skills.consumeMana(20.0f);
+                    ModMessages.sendToPlayer(new PacketSyncMana(skills.getCurrentMana(), skills.getMaxMana()), player);
+                    player.displayClientMessage(Component.literal("§9§l⚡ ¡QUEMADURA DE MANÁ! §c(-20 Maná)"), true);
+                });
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        // SI EL JUGADOR ATACA
+        // ---------------------------------------------------------------------
         if (attacker instanceof ServerPlayer player && target instanceof LivingEntity livingTarget) {
             MinionHelper.redirectMinionsTarget(player, livingTarget, 16.0);
 
+            // A. Interrupción de casteo en ventana amarilla (Rompe-Postura)
+            if (livingTarget instanceof Mob mob && mob.getTags().contains(TacticalCasterGoal.TAG_INTERRUPTIBLE)) {
+                if (player.getAttackStrengthScale(0.5f) >= 0.85f) {
+                    TacticalCasterGoal.interruptCaster(mob, player);
+                }
+            }
+
+            // B. Vulnerabilidad por Postura Rota (+30% Daño)
+            if (livingTarget.getTags().contains(TacticalCasterGoal.TAG_STAGGERED)) {
+                event.setAmount(event.getAmount() * 1.30f);
+            }
+
+            // C. Rotura de Hielo por Fragilidad Abisal (+50% Daño)
+            if (livingTarget.getTags().contains("modrpg_brittle_ice")) {
+                livingTarget.removeTag("modrpg_brittle_ice");
+                event.setAmount(event.getAmount() * 1.50f);
+                ServerLevel level = (ServerLevel) player.level();
+                level.sendParticles(ParticleTypes.SNOWFLAKE, livingTarget.getX(), livingTarget.getY() + 1.0, livingTarget.getZ(), 25, 0.4, 0.4, 0.4, 0.1);
+                level.playSound(null, livingTarget.getX(), livingTarget.getY(), livingTarget.getZ(), SoundEvents.GLASS_BREAK, SoundSource.PLAYERS, 1.5f, 1.2f);
+                player.displayClientMessage(Component.literal("§3💥 ¡GOLPE DE ROTURA DE HIELO! §f(+50% Daño)"), true);
+            }
+
             player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
-                // Registrar práctica mágica cuando se inflige daño mágico
                 if (event.getSource().is(DamageTypes.MAGIC) || event.getSource().is(DamageTypes.INDIRECT_MAGIC)) {
                     skills.addPractice(SkillRegistry.COUNTER_MAGIC_CASTS, 1);
                 }
 
-                // Bono pasivo de Arquería
                 if (event.getSource().getDirectEntity() instanceof AbstractArrow) {
                     int rangedLvl = skills.getBranchLevel(SkillRegistry.BRANCH_RANGED);
                     if (rangedLvl > 0) {
@@ -363,7 +469,6 @@ public class ModEvents {
                     }
                 }
 
-                // Despacha a todos los nodos desbloqueados del atacante
                 for (ResourceLocation nodeId : skills.getUnlockedNodes()) {
                     SkillNode node = SkillRegistry.get(nodeId);
                     if (node != null) {
@@ -373,10 +478,11 @@ public class ModEvents {
             });
         }
 
-        // Si el jugador es quien recibe el golpe
+        // ---------------------------------------------------------------------
+        // SI EL JUGADOR ES EL DEFENSOR
+        // ---------------------------------------------------------------------
         if (target instanceof ServerPlayer victim) {
             victim.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
-                // SOLUCIÓN AL DEADLOCK: Permite sumar práctica de mitigación desde Nivel 0
                 skills.addPractice(SkillRegistry.COUNTER_DAMAGE_BLOCKED, 1);
 
                 int defLvl = skills.getBranchLevel(SkillRegistry.BRANCH_DEFENSE);
@@ -385,7 +491,6 @@ public class ModEvents {
                     event.setAmount(event.getAmount() * factor);
                 }
 
-                // Despacha a los nodos del defensor
                 for (ResourceLocation nodeId : skills.getUnlockedNodes()) {
                     SkillNode node = SkillRegistry.get(nodeId);
                     if (node != null) {
@@ -396,7 +501,9 @@ public class ModEvents {
         }
     }
 
-    // 8. Inicialización de IA y Builds de Mobs
+    // =========================================================================
+    // 8. GENERACIÓN DE ENEMIGOS EN EL MUNDO
+    // =========================================================================
     @SubscribeEvent
     public static void onMonsterSpawn(EntityJoinLevelEvent event) {
         if (!event.getLevel().isClientSide() && event.getEntity() instanceof Monster monster) {

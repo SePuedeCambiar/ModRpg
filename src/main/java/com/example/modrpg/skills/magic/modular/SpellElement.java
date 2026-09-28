@@ -5,6 +5,7 @@ import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.network.chat.Component;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundEvents;
+import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.LivingEntity;
@@ -97,23 +98,46 @@ public enum SpellElement {
     }
 
     public void applyOnHitEffect(LivingEntity caster, LivingEntity victim, float damageDealt) {
+        if (victim == null || victim.level().isClientSide()) return;
+
+        // =========================================================================
+        // 1. REACCIONES ELEMENTALES EN CADENA (Sprint 2)
+        // Evalúa si la víctima ya tenía otro elemento activo para detonar combo
+        // =========================================================================
+        ElementalReactionManager.handleElementalHit(caster, victim, this, damageDealt);
+
+        // =========================================================================
+        // 2. EFECTOS BASE INDIVIDUALES POR ELEMENTO
+        // =========================================================================
+        DamageSource magicSource = (caster != null)
+                ? caster.damageSources().indirectMagic(caster, caster)
+                : victim.damageSources().magic();
+
         switch (this) {
             case FIRE -> victim.setSecondsOnFire(4);
+
             case FROST -> victim.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SLOWDOWN, 60, 2, false, false));
-            case VOID -> caster.heal(Math.max(1.0f, damageDealt * 0.20f));
-            case HOLY -> {
-                if (victim.isInvertedHealAndHarm()) {
-                    victim.hurt(caster.damageSources().indirectMagic(caster, caster), damageDealt * 0.75f);
+
+            case VOID -> {
+                if (caster != null && caster.isAlive()) {
+                    caster.heal(Math.max(1.0f, damageDealt * 0.20f));
                 }
             }
+
+            case HOLY -> {
+                if (victim.isInvertedHealAndHarm()) {
+                    victim.hurt(magicSource, damageDealt * 0.75f);
+                }
+            }
+
             case LIGHTNING -> {
                 var nearby = victim.level().getEntitiesOfClass(
                         LivingEntity.class, victim.getBoundingBox().inflate(4.0),
-                        e -> e != caster && e != victim && e.isAlive() && !e.isAlliedTo(caster)
+                        e -> e != caster && e != victim && e.isAlive() && (caster == null || !e.isAlliedTo(caster))
                 );
                 if (!nearby.isEmpty()) {
                     LivingEntity secondary = nearby.get(0);
-                    secondary.hurt(caster.damageSources().indirectMagic(caster, caster), damageDealt * 0.5f);
+                    secondary.hurt(magicSource, damageDealt * 0.5f);
                 }
             }
         }

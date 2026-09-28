@@ -30,7 +30,7 @@ public class EnemyRpgManager {
         ServerLevel level = (ServerLevel) mob.level();
         RandomSource random = mob.getRandom();
 
-        // 1. Filtrar arquetipos compatibles con la especie de este monstruo
+        // 1. Filtrar arquetipos compatibles
         List<EnemyArchetype> candidates = new ArrayList<>();
         for (EnemyArchetype archetype : EnemyArchetype.values()) {
             if (archetype.isCompatibleWith(mob.getType())) {
@@ -38,20 +38,17 @@ public class EnemyRpgManager {
             }
         }
 
-        // Si la criatura no tiene ningún arquetipo compatible registrado, se queda como mob vanilla
         if (candidates.isEmpty()) return;
 
-        // 2. Calcular Nivel de Amenaza del Entorno
+        // 2. Calcular poder del entorno
         float power = calculatePowerRating(level, mob);
 
-        // 3. Probabilidad de ascender a Caster (del 20% al 65% según el poder)
+        // 3. Probabilidad de convertirse en Caster
         float casterChance = Math.min(0.65f, 0.20f + (power * 0.01f));
         if (random.nextFloat() > casterChance) return;
 
-        // 4. Seleccionar Arquetipo
         EnemyArchetype selectedArchetype = selectArchetypeForPower(candidates, power, random);
 
-        // 5. Escalar nivel de poder del hechizo (1 a 5)
         int spellPowerLevel = 1;
         if (power >= 40.0f) spellPowerLevel = 3 + random.nextInt(3);
         else if (power >= 20.0f) spellPowerLevel = 2;
@@ -59,19 +56,14 @@ public class EnemyRpgManager {
         CraftedSpell spell = selectedArchetype.buildSpell(spellPowerLevel);
         mob.addTag(TAG_CASTER);
 
-        // =========================================================================
-        // 6. EQUIPAMIENTO Y SEÑALIZACIÓN VISUAL (Reconocimiento a simple vista)
-        // =========================================================================
-        // Arma principal sugerida por el arquetipo
+        // 4. Equipamiento base y tintado
         mob.setItemSlot(EquipmentSlot.MAINHAND, new ItemStack(selectedArchetype.getMainHandItem()));
         mob.setDropChance(EquipmentSlot.MAINHAND, 0.02f);
 
-        // Icono elemental en mano secundaria
         ItemStack elementItem = new ItemStack(selectedArchetype.getElement().getIconItem());
         mob.setItemSlot(EquipmentSlot.OFFHAND, elementItem);
         mob.setDropChance(EquipmentSlot.OFFHAND, 0.05f);
 
-        // Casco y Peto de cuero teñidos del color distintivo del arquetipo
         ItemStack helmet = new ItemStack(Items.LEATHER_HELMET);
         ItemStack chestplate = new ItemStack(Items.LEATHER_CHESTPLATE);
         if (helmet.getItem() instanceof DyeableLeatherItem dyeableHelmet) {
@@ -86,15 +78,10 @@ public class EnemyRpgManager {
         mob.setDropChance(EquipmentSlot.HEAD, 0.0f);
         mob.setDropChance(EquipmentSlot.CHEST, 0.0f);
 
-        // Nombre visible al apuntar de cerca
         mob.setCustomName(Component.literal(selectedArchetype.getColorCode() + "§l" + selectedArchetype.getDisplayName()));
         mob.setCustomNameVisible(false);
 
-        // =========================================================================
-        // 7. BUFFS DE ATRIBUTOS PARA ROLES ESPECÍFICOS
-        // =========================================================================
         if (selectedArchetype.isAggressiveRush()) {
-            // El Bruto Ígneo recibe más vida y resistencia a empuje para aguantar la carga
             var hpAttr = mob.getAttribute(Attributes.MAX_HEALTH);
             if (hpAttr != null) {
                 hpAttr.setBaseValue(hpAttr.getBaseValue() + 15.0);
@@ -107,13 +94,32 @@ public class EnemyRpgManager {
         }
 
         // =========================================================================
-        // 8. INYECCIÓN DE LA IA TÁCTICA
+        // 5. ASIGNACIÓN A ESCUADRÓN TÁCTICO F.E.A.R.
         // =========================================================================
+        SquadCoordinator.assignToSquad(mob);
+        SquadCoordinator.Squad squad = SquadCoordinator.getSquadFor(mob);
+
+        // =========================================================================
+        // 6. ASCENSO A CAMPEÓN / LÍDER (Probabilidad del 8% al 20% según el poder)
+        // =========================================================================
+        float championChance = Math.min(0.20f, 0.08f + (power * 0.003f));
+        if (squad != null && squad.leaderUUID == null && random.nextFloat() < championChance) {
+            ChampionAffix[] affixes = new ChampionAffix[]{
+                    ChampionAffix.COMMANDER,
+                    ChampionAffix.RUNIC_SHIELD,
+                    ChampionAffix.VAMPIRIC,
+                    ChampionAffix.MANA_BURN
+            };
+            ChampionAffix affix = affixes[random.nextInt(affixes.length)];
+            affix.applyModifiers(mob);
+            squad.leaderUUID = mob.getUUID();
+        }
+
+        // 7. Inyectar la IA Táctica
         mob.goalSelector.addGoal(1, new TacticalCasterGoal(mob, selectedArchetype, spell));
     }
 
     private static EnemyArchetype selectArchetypeForPower(List<EnemyArchetype> candidates, float power, RandomSource random) {
-        // Si es esqueleto y hay alto poder, mayor probabilidad de ser Nigromante
         if (candidates.contains(EnemyArchetype.CRYPT_NECROMANCER) && power >= 25.0f && random.nextFloat() < 0.5f) {
             return EnemyArchetype.CRYPT_NECROMANCER;
         }
