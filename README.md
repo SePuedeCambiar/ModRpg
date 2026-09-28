@@ -1,6 +1,7 @@
 # ⚔️ ModRPG
 
 > **A deep RPG progression system for Minecraft Java Edition.**
+>
 > Build your character through massive skill branches, unlock active abilities, combine different playstyles, master magic, and face enemies that evolve alongside you.
 
 **ModRPG** is an RPG progression framework for Minecraft focused on **long-term character development, specialization and combat variety**.
@@ -17,23 +18,23 @@ Build your character through multiple interconnected skill branches.
 
 Current main branches include:
 
-* ⚔️ **Melee**
-* 🏹 **Ranged**
-* 🏃 **Mobility**
-* 🛡️ **Defense**
-* 🔮 **Magic**
+- ⚔️ **Melee**
+- 🏹 **Ranged**
+- 🏃 **Mobility**
+- 🛡️ **Defense**
+- 🔮 **Magic**
 
 Each branch contains different types of nodes:
 
-* Passive stat bonuses
-* Passive toggles
-* Active abilities
-* Hybrid synergies
-* Ultimate abilities
+- Passive stat bonuses
+- Passive toggles
+- Active abilities
+- Hybrid synergies
+- Ultimate abilities
 
 Skills can have prerequisites, branch-level requirements, practice requirements and dependencies on previous nodes.
 
-The skill tree is displayed through a dedicated in-game interface with zooming, camera movement, branch filtering and visual connections between nodes.
+The skill tree is displayed through a dedicated in-game interface for navigating and managing your progression.
 
 ---
 
@@ -49,11 +50,11 @@ Each branch also tracks its own **practice**, encouraging players to actually us
 
 For example:
 
-* ⚔️ Melee → progress through melee combat
-* 🏹 Ranged → progress through ranged kills
-* 🔮 Magic → progress through spellcasting
-* 🛡️ Defense → progress through damage mitigation
-* 🏃 Mobility → progress through movement
+- ⚔️ Melee → progress through melee combat
+- 🏹 Ranged → progress through ranged combat
+- 🔮 Magic → progress through spellcasting
+- 🛡️ Defense → progress through defensive gameplay
+- 🏃 Mobility → progress through movement
 
 The result is a progression system where **what you do affects what you become**.
 
@@ -63,16 +64,16 @@ Low levels are intentionally subtle.
 
 As the player invests further into a specialization, the bonuses become increasingly noticeable.
 
-For example, the current progression system includes:
+The progression system includes scaling for areas such as:
 
-* Melee damage scaling
-* Mobility scaling
-* Defensive damage reduction
-* Ranged damage scaling
-* Increasing XP costs
-* Increasing practice requirements
+- Melee damage
+- Mobility
+- Defensive mitigation
+- Ranged damage
+- XP costs
+- Practice requirements
 
-The goal is for a level 100 specialist to feel dramatically different from a newly trained character.
+The goal is for high-level specialists to feel dramatically different from newly trained characters.
 
 ---
 
@@ -82,17 +83,17 @@ The melee branch focuses on close-range combat, weapon mastery and high-impact a
 
 Examples include:
 
-* **Double Attack**
-* **Wide Sweep**
-* **Heavy Tornado**
-* **Leg Trip**
-* **Vital Cleave**
-* **Berserker Stance**
-* **Weapon Mastery**
-* **MegaCut**
-* **UltraCut**
-* **Ether Dual Sword**
-* **Unarmed Style**
+- **Double Attack**
+- **Wide Sweep**
+- **Heavy Tornado**
+- **Leg Trip**
+- **Vital Cleave**
+- **Berserker Stance**
+- **Weapon Mastery**
+- **MegaCut**
+- **UltraCut**
+- **Ether Dual Sword**
+- **Unarmed Style**
 
 The branch contains both passive improvements and abilities that fundamentally change how the player fights.
 
@@ -134,12 +135,12 @@ It includes movement abilities that allow the player to turn movement itself int
 
 Examples include:
 
-* Dash
-* Air Jump
-* Impact Jump
-* Light Step
-* Flurry of Strikes
-* Mobility-based melee improvements
+- Dash
+- Air Jump
+- Impact Jump
+- Light Step
+- Flurry of Strikes
+- Mobility-based melee improvements
 
 Some abilities interact with combat events, movement and defensive mechanics.
 
@@ -151,10 +152,10 @@ The Defense branch focuses on survivability and defensive mechanics.
 
 Current abilities include:
 
-* **Stone Skin**
-* **Push and Wear**
-* **Iron Strength**
-* **Iron Fortress**
+- **Stone Skin**
+- **Push and Wear**
+- **Iron Strength**
+- **Iron Fortress**
 
 Defense progression can reduce incoming damage while advanced abilities can introduce additional defensive mechanics.
 
@@ -166,25 +167,25 @@ Magic is designed as its own progression system rather than simply being a colle
 
 The mod includes:
 
-* Mana
-* Magical projectiles
-* Elements
-* Spell shapes
-* Spell timing
-* Spell crafting
-* Elemental reactions
-* Magical summons
-* Healing
-* Offensive spells
-* Magical status effects
+- Mana
+- Magical projectiles
+- Elements
+- Spell shapes
+- Spell timing
+- Spell crafting
+- Elemental reactions
+- Magical summons
+- Healing
+- Offensive spells
+- Magical status effects
 
 Current elements include:
 
-* 🔥 Fire
-* ⚡ Lightning
-* ❄️ Frost
-* 🕳️ Void
-* ✨ Holy
+- 🔥 Fire
+- ⚡ Lightning
+- ❄️ Frost
+- 🕳️ Void
+- ✨ Holy
 
 ---
 
@@ -210,10 +211,10 @@ Enemies can become temporarily **primed with an element**, allowing subsequent e
 
 Examples currently implemented include:
 
-* ❄️ Frost + ⚡ Lightning
-* 🔥 Fire + 🕳️ Void
-* 🔥 Fire + ✨ Holy
-* ❄️ Frost + 🕳️ Void
+- ❄️ Frost + ⚡ Lightning
+- 🔥 Fire + 🕳️ Void
+- 🔥 Fire + ✨ Holy
+- ❄️ Frost + 🕳️ Void
 
 This creates a combat loop where the player can deliberately set up elemental combinations instead of simply spamming the strongest spell.
 
@@ -227,10 +228,10 @@ ModRPG includes **Hybrid Synergy** nodes that connect different playstyles.
 
 Examples include:
 
-* 🏹⚔️ Sword + Bow interactions
-* Projectile/mobility combinations
-* Hybrid hunter abilities
-* Combined ultimate abilities
+- 🏹⚔️ Sword + Bow interactions
+- Projectile/mobility combinations
+- Hybrid hunter abilities
+- Combined ultimate abilities
 
 The intention is to reward players who invest in multiple branches and discover combinations between them.
 
@@ -244,13 +245,13 @@ ModRPG also introduces RPG-style enemy progression.
 
 Enemies can dynamically receive:
 
-* Different archetypes
-* Specialized equipment
-* Spells
-* Increased power
-* Champion status
-* Special affixes
-* Tactical behavior
+- Different archetypes
+- Specialized equipment
+- Spells
+- Increased power
+- Champion status
+- Special affixes
+- Tactical behavior
 
 Enemy power takes into account factors such as **world progression and nearby players' RPG progression**.
 
@@ -266,15 +267,15 @@ The mod includes tactical behavior for specialized casters.
 
 Enemies can:
 
-* Kite players
-* Retreat from dangerous situations
-* Flank
-* Coordinate with nearby mobs
-* Request assistance
-* Protect important targets
-* Interruptible cast attacks
-* React to stagger states
-* Coordinate through squads
+- Kite players
+- Retreat from dangerous situations
+- Flank
+- Coordinate with nearby mobs
+- Request assistance
+- Protect important targets
+- Use interruptible cast attacks
+- React to stagger states
+- Coordinate through squads
 
 Enemies can also form tactical groups with a leader and shared combat behavior.
 
@@ -288,10 +289,10 @@ Champions receive special modifiers called **Affixes**.
 
 Current affixes include:
 
-* **Commander**
-* **Runic Shield**
-* **Vampiric**
-* **Mana Burn**
+- **Commander**
+- **Runic Shield**
+- **Vampiric**
+- **Mana Burn**
 
 Champions also receive additional visual and combat characteristics, making them more dangerous encounters than ordinary mobs.
 
@@ -303,16 +304,16 @@ Abilities are designed to communicate their effects visually and audibly.
 
 The mod uses:
 
-* Particles
-* Sounds
-* Explosions
-* Knockback
-* Special projectile behavior
-* Combat messages
-* Cooldown indicators
-* Mana display
-* Champion HUD
-* Stagger feedback
+- Particles
+- Sounds
+- Explosions
+- Knockback
+- Special projectile behavior
+- Combat messages
+- Cooldown indicators
+- Mana display
+- Champion HUD
+- Stagger feedback
 
 The goal is for powerful abilities to **feel powerful**, not simply modify an invisible number.
 
@@ -326,14 +327,14 @@ ModRPG includes several dedicated interfaces.
 
 Open the RPG skill tree to:
 
-* Browse branches
-* Inspect requirements
-* Unlock abilities
-* Track progression
-* Equip skills
-* View branch levels
-* Monitor practice
-* Navigate large sections of the tree
+- Browse branches
+- Inspect requirements
+- Unlock abilities
+- Track progression
+- Equip skills
+- View branch levels
+- Monitor practice
+- Navigate large sections of the tree
 
 ### 🎡 Radial Skill Menu
 
@@ -349,12 +350,12 @@ Create and save custom spells through the modular magic system.
 
 The mod provides additional information such as:
 
-* Mana
-* Skill cooldowns
-* Target information
-* Champion status
-* Stagger status
-* Elemental effects
+- Mana
+- Skill cooldowns
+- Target information
+- Champion status
+- Stagger status
+- Elemental effects
 
 ---
 
@@ -362,17 +363,17 @@ The mod provides additional information such as:
 
 Default keybinds currently include:
 
-| Key | Action            |
-| --- | ----------------- |
+| Key | Action |
+|---|---|
 | `Z` | Skill radial menu |
-| `K` | Skill tree        |
-| `O` | Spell crafting    |
-| `R` | Selected skill    |
-| `V` | Spin attack       |
-| `B` | MegaCut           |
-| `G` | Dash              |
-| `X` | Fireball          |
-| `C` | Heal              |
+| `K` | Skill tree |
+| `O` | Spell crafting |
+| `R` | Selected skill |
+| `V` | Spin attack |
+| `B` | MegaCut |
+| `G` | Dash |
+| `X` | Fireball |
+| `C` | Heal |
 
 > Keybindings may be changed through Minecraft's controls menu.
 
@@ -457,8 +458,8 @@ The project includes unit tests for parts of the progression system.
 
 Current test coverage includes:
 
-* `PlayerSkillsTest`
-* `SkillProgressionTest`
+- `PlayerSkillsTest`
+- `SkillProgressionTest`
 
 The Gradle project is configured for JUnit 5 and Mockito.
 
@@ -470,27 +471,27 @@ The Gradle project is configured for JUnit 5 and Mockito.
 
 The current version already contains the core architecture for:
 
-* Skill progression
-* Multiple RPG branches
-* Active abilities
-* Passive abilities
-* Hybrid abilities
-* Ultimate abilities
-* Practice-based progression
-* Mana
-* Modular spell crafting
-* Elemental reactions
-* RPG enemies
-* Champions
-* Tactical enemy AI
-* Skill tree UI
-* Radial ability UI
-* Combat HUD
+- Skill progression
+- Multiple RPG branches
+- Active abilities
+- Passive abilities
+- Hybrid abilities
+- Ultimate abilities
+- Practice-based progression
+- Mana
+- Modular spell crafting
+- Elemental reactions
+- RPG enemies
+- Champions
+- Tactical enemy AI
+- Skill tree UI
+- Radial ability UI
+- Combat HUD
 
 However, the project is still under active development and some systems may require balancing, polishing, additional content, animation work, multiplayer testing and further optimization.
 
-Expect bugs.
-Expect balance problems.
+Expect bugs.  
+Expect balance problems.  
 Expect some abilities to be completely ridiculous.
 
 That's part of the fun.™
@@ -501,23 +502,23 @@ That's part of the fun.™
 
 Potential future development includes:
 
-* [ ] More skill branches
-* [ ] More hybrid branches
-* [ ] More ultimate abilities
-* [ ] More weapon-specific abilities
-* [ ] Additional magic elements
-* [ ] More elemental reactions
-* [ ] More enemy archetypes
-* [ ] More champion affixes
-* [ ] Additional tactical behaviors
-* [ ] More visual effects
-* [ ] Better animations
-* [ ] Expanded sound design
-* [ ] More progression content
-* [ ] Multiplayer balancing
-* [ ] Configuration options
-* [ ] CurseForge release
-* [ ] Documentation/wiki
+- [ ] More skill branches
+- [ ] More hybrid branches
+- [ ] More ultimate abilities
+- [ ] More weapon-specific abilities
+- [ ] Additional magic elements
+- [ ] More elemental reactions
+- [ ] More enemy archetypes
+- [ ] More champion affixes
+- [ ] Additional tactical behaviors
+- [ ] More visual effects
+- [ ] Better animations
+- [ ] Expanded sound design
+- [ ] More progression content
+- [ ] Multiplayer balancing
+- [ ] Configuration options
+- [ ] CurseForge release
+- [ ] Documentation/wiki
 
 ---
 
@@ -533,12 +534,12 @@ Created by **[Your Name]**
 
 Built with:
 
-* Minecraft
-* Minecraft Forge
-* Java
-* Gradle
-* JUnit
-* Mockito
+- Minecraft
+- Minecraft Forge
+- Java
+- Gradle
+- JUnit
+- Mockito
 
 ---
 
