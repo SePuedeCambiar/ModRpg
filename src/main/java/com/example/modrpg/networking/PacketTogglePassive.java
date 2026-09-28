@@ -40,6 +40,17 @@ public class PacketTogglePassive {
                 if (node == null || !skills.isNodeUnlocked(node.getId())) return;
                 if (node.getType() != SkillNode.NodeType.PASSIVE_TOGGLE) return;
 
+                boolean currentlyActive = skills.isToggleActive(node.getId());
+
+                // Validación de seguridad: no permitir encender la postura si no hay maná
+                if (!currentlyActive && node.getSustainManaCost() > 0.0f && skills.getCurrentMana() < 1.0f) {
+                    player.displayClientMessage(Component.literal("§c§l⚡ ¡Maná agotado! §7No puedes encender esta postura."), true);
+                    player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
+                            SoundEvents.FIRE_EXTINGUISH, SoundSource.PLAYERS, 0.8f, 1.4f);
+                    SkillEconomy.syncSkills(player);
+                    return;
+                }
+
                 boolean newState = skills.toggleState(node.getId());
                 node.onToggleChanged(player, skills, newState);
 

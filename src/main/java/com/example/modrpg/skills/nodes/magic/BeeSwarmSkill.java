@@ -1,6 +1,9 @@
 package com.example.modrpg.skills.nodes.magic;
 
+import com.example.modrpg.networking.ModMessages;
+import com.example.modrpg.networking.PacketSyncMana;
 import com.example.modrpg.skills.PlayerSkills;
+import com.example.modrpg.skills.SkillEconomy;
 import com.example.modrpg.skills.data.SkillNode;
 import com.example.modrpg.skills.data.SkillRegistry;
 import net.minecraft.core.particles.ParticleTypes;
@@ -26,7 +29,7 @@ public class BeeSwarmSkill extends SkillNode {
                 Component.literal("Invocación: Enjambre Hostil"),
                 Component.literal("Fija la mirada en un enemigo para invocar un enjambre de 4 abejas enfurecidas que lo asedian durante 8 segundos."),
                 NodeType.ACTIVE_ABILITY,
-                240 // 12 segundos de recarga
+                240
         );
         this.setManaCost(35.0f);
     }
@@ -37,7 +40,6 @@ public class BeeSwarmSkill extends SkillNode {
         Vec3 look = player.getLookAngle();
         Vec3 eyePos = player.getEyePosition();
 
-        // Buscar al enemigo vivo más alineado con el centro de la mira del jugador (hasta 16 bloques)
         AABB searchBox = player.getBoundingBox().inflate(16.0);
         List<LivingEntity> candidates = level.getEntitiesOfClass(
                 LivingEntity.class, searchBox,
@@ -45,7 +47,7 @@ public class BeeSwarmSkill extends SkillNode {
         );
 
         LivingEntity bestTarget = null;
-        double bestAlignment = 0.70; // Requiere que esté al menos en el campo frontal
+        double bestAlignment = 0.70;
 
         for (LivingEntity candidate : candidates) {
             Vec3 toCandidate = candidate.getEyePosition().subtract(eyePos).normalize();
@@ -56,16 +58,18 @@ public class BeeSwarmSkill extends SkillNode {
             }
         }
 
+        // Caso Whiff: reembolso inmediato y sincronización sin desync
         if (bestTarget == null) {
             player.displayClientMessage(Component.literal("§c✖ Debes apuntar hacia un enemigo para enviar las abejas."), true);
-            skills.setCooldown(this.getId(), 20); // 1s de penalización
-            skills.restoreMana(35.0f); // Reembolsa el maná
+            skills.setCooldown(this.getId(), 20);
+            skills.restoreMana(this.getManaCost());
+            ModMessages.sendToPlayer(new PacketSyncMana(skills.getCurrentMana(), skills.getMaxMana()), player);
+            SkillEconomy.syncSkills(player);
             return;
         }
 
-        // Variable final para permitir su uso seguro dentro de la lambda
         final LivingEntity target = bestTarget;
-        final int beeLifespan = 160; // 8 segundos exactos
+        final int beeLifespan = 160;
 
         for (int i = 0; i < 4; i++) {
             Vec3 spawnPos = target.position().add((Math.random() - 0.5) * 2.0, 1.2, (Math.random() - 0.5) * 2.0);

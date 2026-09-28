@@ -18,18 +18,19 @@ public class BerserkerStanceSkill extends SkillNode {
                 SkillRegistry.NODE_BERSERKER_STANCE,
                 SkillRegistry.BRANCH_MELEE,
                 Component.literal("Postura Berserker"),
-                Component.literal("Postura conmutable: Infunde tus ataques con furia (+30% Daño CaC), pero recibes +15% de daño. Drena 2 de Maná por segundo."),
+                Component.literal("Postura conmutable: Infunde tus ataques con furia (+30% Daño CaC), pero recibes +15% de daño. Drena 4.5 de Maná por segundo."),
                 NodeType.PASSIVE_TOGGLE,
                 0
         );
-        this.setSustainManaCost(2.0f); // 2 de maná por segundo
+        // Coste superior a la regeneración natural (2.0/s) para obligar a una gestión de maná real
+        this.setSustainManaCost(4.5f);
     }
 
     @Override
     public void onLivingHurt(ServerPlayer player, LivingHurtEvent event, PlayerSkills skills) {
         if (!skills.isToggleActive(this.getId())) return;
 
-        // 1. Cuando el jugador ataca: +30% de daño infligido
+        // 1. Al atacar: +30% de daño infligido
         if (event.getSource().getDirectEntity() == player) {
             event.setAmount(event.getAmount() * 1.30f);
 
@@ -38,7 +39,7 @@ public class BerserkerStanceSkill extends SkillNode {
             level.playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.PLAYER_ATTACK_CRIT, SoundSource.PLAYERS, 0.8f, 1.6f);
         }
 
-        // 2. Cuando el jugador es golpeado: +15% de daño recibido
+        // 2. Al recibir golpes: +15% de daño recibido
         if (event.getEntity() == player) {
             event.setAmount(event.getAmount() * 1.15f);
         }

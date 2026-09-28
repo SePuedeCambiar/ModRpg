@@ -4,6 +4,7 @@ import com.example.modrpg.skills.PlayerSkills;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.AbstractArrow;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -13,12 +14,13 @@ import net.minecraftforge.event.entity.living.LivingHurtEvent;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.function.Supplier;
 
 public abstract class SkillNode {
 
     public enum NodeType {
         PASSIVE_STAT,
-        PASSIVE_TOGGLE, // <-- Nuevo tipo: Posturas y Auras conmutables
+        PASSIVE_TOGGLE,
         ACTIVE_ABILITY,
         HYBRID_SYNERGY,
         ULTIMATE
@@ -30,14 +32,17 @@ public abstract class SkillNode {
     private final Component description;
     private final NodeType type;
     private final int defaultCooldownTicks;
-    private float manaCost = 0.0f;           // Coste de activación / casteo
-    private float sustainManaCost = 0.0f;    // Maná consumido por segundo mientras esté activa (para TOGGLE)
+    private float manaCost = 0.0f;
+    private float sustainManaCost = 0.0f;
 
     private final List<SkillRequirement> requirements = new ArrayList<>();
     private int posX = 0;
     private int posY = 0;
     private final List<ResourceLocation> parentIds = new ArrayList<>();
-    private ItemStack icon = new ItemStack(Items.BOOK);
+
+    // Carga perezosa (Lazy) del icono para no romper tests unitarios headless
+    private ItemStack icon = null;
+    private Supplier<ItemStack> iconSupplier = null;
 
     public SkillNode(ResourceLocation id, ResourceLocation branchId, Component displayName, Component description, NodeType type, int defaultCooldownTicks) {
         this.id = id;
@@ -83,6 +88,18 @@ public abstract class SkillNode {
         return this;
     }
 
+    public SkillNode setVisuals(int x, int y, Supplier<ItemStack> iconSupplier, ResourceLocation... parents) {
+        this.posX = x;
+        this.posY = y;
+        this.iconSupplier = iconSupplier;
+        for (ResourceLocation parent : parents) {
+            if (parent != null && !this.parentIds.contains(parent)) {
+                this.parentIds.add(parent);
+            }
+        }
+        return this;
+    }
+
     public ResourceLocation getId() { return id; }
     public ResourceLocation getBranchId() { return branchId; }
     public Component getDisplayName() { return displayName; }
@@ -93,7 +110,17 @@ public abstract class SkillNode {
     public int getPosX() { return posX; }
     public int getPosY() { return posY; }
     public List<ResourceLocation> getParentIds() { return Collections.unmodifiableList(parentIds); }
-    public ItemStack getIcon() { return icon; }
+
+    public ItemStack getIcon() {
+        if (this.icon == null) {
+            if (this.iconSupplier != null) {
+                this.icon = this.iconSupplier.get();
+            } else {
+                this.icon = new ItemStack(Items.BOOK);
+            }
+        }
+        return this.icon;
+    }
 
     public boolean canUnlock(ServerPlayer player, PlayerSkills skills) {
         if (skills.isNodeUnlocked(this.id)) return false;

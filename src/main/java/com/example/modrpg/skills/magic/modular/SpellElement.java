@@ -103,7 +103,7 @@ public enum SpellElement {
             case VOID -> caster.heal(Math.max(1.0f, damageDealt * 0.20f));
             case HOLY -> {
                 if (victim.isInvertedHealAndHarm()) {
-                    victim.hurt(caster.damageSources().magic(), damageDealt * 0.75f);
+                    victim.hurt(caster.damageSources().indirectMagic(caster, caster), damageDealt * 0.75f);
                 }
             }
             case LIGHTNING -> {
@@ -113,7 +113,7 @@ public enum SpellElement {
                 );
                 if (!nearby.isEmpty()) {
                     LivingEntity secondary = nearby.get(0);
-                    secondary.hurt(caster.damageSources().magic(), damageDealt * 0.5f);
+                    secondary.hurt(caster.damageSources().indirectMagic(caster, caster), damageDealt * 0.5f);
                 }
             }
         }

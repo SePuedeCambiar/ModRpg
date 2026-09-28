@@ -5,6 +5,7 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ClientGamePacketListener;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.projectile.ThrowableItemProjectile;
@@ -40,7 +41,6 @@ public class MagicProjectileEntity extends ThrowableItemProjectile {
     public void tick() {
         super.tick();
         if (this.level().isClientSide) {
-            // Estela visual continua de partículas
             this.level().addParticle(element.getParticle(), this.getX(), this.getY(), this.getZ(), 0, 0, 0);
         }
     }
@@ -52,8 +52,12 @@ public class MagicProjectileEntity extends ThrowableItemProjectile {
             LivingEntity shooter = (LivingEntity) this.getOwner();
             if (shooter != null && victim.isAlliedTo(shooter)) return;
 
-            // Daño del proyectil
-            victim.hurt(this.damageSources().magic(), this.damage);
+            // ATRIBUCIÓN CORRECTA: Daño atribuido al dueño del proyectil
+            DamageSource damageSource = shooter != null
+                    ? this.damageSources().indirectMagic(this, shooter)
+                    : this.damageSources().magic();
+
+            victim.hurt(damageSource, this.damage);
 
             if (shooter != null) {
                 element.applyOnHitEffect(shooter, victim, this.damage);

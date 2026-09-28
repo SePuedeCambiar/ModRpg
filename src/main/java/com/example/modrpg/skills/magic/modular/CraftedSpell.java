@@ -1,11 +1,11 @@
 package com.example.modrpg.skills.magic.modular;
 
-import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundSource;
+import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
@@ -56,14 +56,11 @@ public class CraftedSpell {
         return Math.max(5, (int) (base * shapeMod * timeMod));
     }
 
-    /**
-     * Motor de casteo universal (utilizable por Jugadores y por Mobs en el Paso 5).
-     */
     public void cast(LivingEntity caster, Vec3 look) {
         ServerLevel level = (ServerLevel) caster.level();
         float damage = calculateDamage(caster);
+        DamageSource magicSource = caster.damageSources().indirectMagic(caster, caster);
 
-        // Sonido de casteo
         level.playSound(null, caster.getX(), caster.getY(), caster.getZ(),
                 element.getCastSound(), SoundSource.PLAYERS, 1.0f, 1.2f);
 
@@ -86,7 +83,7 @@ public class CraftedSpell {
                             e -> e != caster && e.isAlive() && !e.isAlliedTo(caster)
                     );
                     for (LivingEntity e : enemies) {
-                        e.hurt(caster.damageSources().magic(), damage);
+                        e.hurt(magicSource, damage);
                         element.applyOnHitEffect(caster, e, damage);
                     }
                 }
@@ -104,7 +101,7 @@ public class CraftedSpell {
                         e -> e != caster && e.isAlive() && !e.isAlliedTo(caster)
                 );
                 for (LivingEntity t : targets) {
-                    t.hurt(caster.damageSources().magic(), damage);
+                    t.hurt(magicSource, damage);
                     element.applyOnHitEffect(caster, t, damage);
                 }
             }
@@ -122,7 +119,7 @@ public class CraftedSpell {
                         e -> e != caster && e.isAlive() && !e.isAlliedTo(caster)
                 );
                 for (LivingEntity e : nearby) {
-                    e.hurt(caster.damageSources().magic(), damage);
+                    e.hurt(magicSource, damage);
                     element.applyOnHitEffect(caster, e, damage);
                 }
             }
@@ -138,7 +135,7 @@ public class CraftedSpell {
                 );
                 if (!hit.isEmpty()) {
                     LivingEntity victim = hit.get(0);
-                    victim.hurt(caster.damageSources().magic(), damage);
+                    victim.hurt(magicSource, damage);
                     element.applyOnHitEffect(caster, victim, damage);
                 }
             }

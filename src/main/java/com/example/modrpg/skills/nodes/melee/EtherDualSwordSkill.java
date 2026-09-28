@@ -40,7 +40,8 @@ public class EtherDualSwordSkill extends SkillNode {
             try {
                 target.addTag(ETHER_TAG);
                 target.invulnerableTime = 0;
-                target.hurt(player.damageSources().magic(), magicDamage);
+                // Atribución de daño mágico al jugador
+                target.hurt(player.damageSources().indirectMagic(player, player), magicDamage);
                 target.invulnerableTime = 10;
             } finally {
                 target.removeTag(ETHER_TAG);

@@ -10,8 +10,10 @@ import com.example.modrpg.skills.data.SkillRegistry;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.resources.sounds.SimpleSoundInstance;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.sounds.SoundEvents;
 import net.minecraft.world.entity.player.Player;
 
 import java.util.ArrayList;
@@ -24,6 +26,7 @@ public class RadialMenuScreen extends Screen {
     private static final int BADGE_SIZE = 30;
 
     private final List<SkillNode> activeSkills = new ArrayList<>();
+    private ResourceLocation lastHoveredId = null;
 
     public RadialMenuScreen() {
         super(Component.literal("Rueda de Habilidades RPG"));
@@ -56,7 +59,7 @@ public class RadialMenuScreen extends Screen {
             }
         }
 
-        // 2. Fallback
+        // 2. Fallback automático
         if (activeSkills.isEmpty()) {
             for (ResourceLocation id : skills.getUnlockedNodes()) {
                 if (activeSkills.size() >= PlayerSkills.MAX_LOADOUT_SLOTS) break;
@@ -102,6 +105,10 @@ public class RadialMenuScreen extends Screen {
             boolean isHovered = (mouseX >= nodeX && mouseX <= nodeX + BADGE_SIZE && mouseY >= nodeY && mouseY <= nodeY + BADGE_SIZE);
             if (isHovered) {
                 hoveredSkill = node;
+                if (!Objects.equals(lastHoveredId, node.getId())) {
+                    Minecraft.getInstance().getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK.get(), 1.6f, 0.25f));
+                    lastHoveredId = node.getId();
+                }
             }
 
             boolean isToggle = node.getType() == SkillNode.NodeType.PASSIVE_TOGGLE;
@@ -115,13 +122,13 @@ public class RadialMenuScreen extends Screen {
             if (isToggle) {
                 boolean active = skills.isToggleActive(node.getId());
                 if (active) {
-                    borderColor = 0xFF55FF55; // Verde brillante si está activada
+                    borderColor = 0xFF55FF55;
                     borderThickness = 2;
                 } else {
-                    borderColor = 0xFF555566; // Gris oscuro si está apagada
+                    borderColor = 0xFF555566;
                 }
             } else if (isCurrentSelection) {
-                borderColor = 0xFF00FFFF; // Cyan para la seleccionada en [R]
+                borderColor = 0xFF00FFFF;
                 borderThickness = 2;
             } else if (onCooldown) {
                 borderColor = 0xFFAA2222;
@@ -131,15 +138,17 @@ public class RadialMenuScreen extends Screen {
                 borderColor = isHovered ? 0xFFFFFFFF : 0xFFDAA520;
             }
 
-            // Fondo y marco
             guiGraphics.fill(nodeX - borderThickness, nodeY - borderThickness, nodeX + BADGE_SIZE + borderThickness, nodeY + BADGE_SIZE + borderThickness, borderColor);
             guiGraphics.fill(nodeX, nodeY, nodeX + BADGE_SIZE, nodeY + BADGE_SIZE, isHovered ? 0xFF2A2A38 : 0xFF14141E);
             guiGraphics.renderItem(node.getIcon(), nodeX + (BADGE_SIZE - 16) / 2, nodeY + (BADGE_SIZE - 16) / 2);
 
-            // Sombreado de cooldown
             if (onCooldown) {
                 guiGraphics.fill(nodeX, nodeY, nodeX + BADGE_SIZE, nodeY + BADGE_SIZE, 0x88AA0000);
             }
+        }
+
+        if (hoveredSkill == null) {
+            lastHoveredId = null;
         }
 
         // Información central
@@ -153,7 +162,7 @@ public class RadialMenuScreen extends Screen {
                 guiGraphics.drawCenteredString(this.font, (active ? "§a§l✔ " : "§7§l✖ ") + title + (active ? " §2[ACTIVA]" : " §8[DESACTIVADA]"), centerX, centerY - 20, 0xFFFFFF);
                 guiGraphics.drawCenteredString(this.font, "§eClic Izquierdo: Alternar Estado (ON / OFF)", centerX, centerY - 6, 0xFFFF88);
                 if (hoveredSkill.getSustainManaCost() > 0) {
-                    guiGraphics.drawCenteredString(this.font, "§9Mantenimiento: " + (int) hoveredSkill.getSustainManaCost() + " Maná/segundo", centerX, centerY + 8, 0x88AAFF);
+                    guiGraphics.drawCenteredString(this.font, "§9Mantenimiento: " + String.format("%.1f", hoveredSkill.getSustainManaCost()) + " Maná/s", centerX, centerY + 8, 0x88AAFF);
                 }
             } else {
                 guiGraphics.drawCenteredString(this.font, (isCurrentSelection ? "§b⭐ " : "§6") + "§l" + title, centerX, centerY - 20, 0xFFFFFF);
@@ -199,23 +208,29 @@ public class RadialMenuScreen extends Screen {
                 int nodeY = (int) (centerY + Math.sin(angle) * RADIUS) - (BADGE_SIZE / 2);
 
                 if (mouseX >= nodeX && mouseX <= nodeX + BADGE_SIZE && mouseY >= nodeY && mouseY <= nodeY + BADGE_SIZE) {
-                    // CASO A: Es una pasiva conmutable (Toggle)
+                    Player player = Minecraft.getInstance().player;
+                    if (player == null) return false;
+
+                    // CASO A: Pasiva conmutable (Toggle)
                     if (node.getType() == SkillNode.NodeType.PASSIVE_TOGGLE) {
+                        PlayerSkills skills = player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).orElse(null);
+                        if (skills != null && !skills.isToggleActive(node.getId()) && node.getSustainManaCost() > 0 && skills.getCurrentMana() < 1.0f) {
+                            player.displayClientMessage(Component.literal("§c⚡ ¡No tienes suficiente maná para activar esta postura!"), true);
+                            Minecraft.getInstance().getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.FIRE_EXTINGUISH, 1.2f, 0.8f));
+                            return true;
+                        }
+
                         ModMessages.sendToServer(new PacketTogglePassive(node.getId()));
-                        Player player = Minecraft.getInstance().player;
-                        if (player != null) {
-                            player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(s -> s.toggleState(node.getId()));
+                        if (skills != null) {
+                            skills.toggleState(node.getId());
                         }
                         this.onClose();
                         return true;
                     }
 
-                    // CASO B: Es una habilidad activa normal
+                    // CASO B: Habilidad activa
                     ModMessages.sendToServer(new PacketSelectSkill(node.getId()));
-                    Player player = Minecraft.getInstance().player;
-                    if (player != null) {
-                        player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(s -> s.setSelectedSkill(node.getId()));
-                    }
+                    player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(s -> s.setSelectedSkill(node.getId()));
 
                     this.onClose();
                     return true;

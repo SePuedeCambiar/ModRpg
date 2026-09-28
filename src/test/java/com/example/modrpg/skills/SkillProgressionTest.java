@@ -24,20 +24,19 @@ class SkillProgressionTest {
     void testMeleeDamageCurveLinear() {
         double baseAttack = 10.0;
 
-        // Nivel 0: sin bono
         assertEquals(0.0, SkillProgression.getMeleeBonusDamage(baseAttack, 0), 0.001);
-
-        // Nivel 1: +2% exacto (+0.2 de daño)
         assertEquals(0.2, SkillProgression.getMeleeBonusDamage(baseAttack, 1), 0.001);
-
-        // Nivel 10: +20% (+2.0 de daño)
         assertEquals(2.0, SkillProgression.getMeleeBonusDamage(baseAttack, 10), 0.001);
-
-        // Nivel 50: +100% (+10.0 de daño, duplica el daño base)
         assertEquals(10.0, SkillProgression.getMeleeBonusDamage(baseAttack, 50), 0.001);
-
-        // Nivel 100: +200% exacto (+20.0 de daño, triplica el daño total)
         assertEquals(20.0, SkillProgression.getMeleeBonusDamage(baseAttack, 100), 0.001);
+    }
+
+    @Test
+    @DisplayName("La curva de velocidad de movilidad debe escalar suavemente con exponente 1.5")
+    void testMobilitySpeedScaling() {
+        assertEquals(0.0, SkillProgression.getMobilityBonusSpeed(0), 0.0001);
+        assertTrue(SkillProgression.getMobilityBonusSpeed(50) < 0.04);
+        assertEquals(0.08, SkillProgression.getMobilityBonusSpeed(100), 0.001);
     }
 
     @Test

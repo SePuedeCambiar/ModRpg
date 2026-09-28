@@ -31,7 +31,6 @@ public class CombinedUltimateSkill extends SkillNode {
 
     @Override
     public void onLivingHurt(ServerPlayer player, LivingHurtEvent event, PlayerSkills skills) {
-        // Solo detona si el golpe actual es el Ultracorte Final
         if (event.getSource().getDirectEntity() == player && player.getTags().contains(UltracutSkill.ULTRACUT_HIT_TAG)) {
             LivingEntity target = event.getEntity();
             ServerLevel level = (ServerLevel) player.level();
@@ -51,7 +50,7 @@ public class CombinedUltimateSkill extends SkillNode {
 
             float splashDamage = event.getAmount() * 0.40f;
             for (LivingEntity e : enemies) {
-                e.hurt(player.damageSources().magic(), splashDamage);
+                e.hurt(player.damageSources().indirectMagic(player, player), splashDamage);
             }
 
             level.playSound(null, target.getX(), target.getY(), target.getZ(), SoundEvents.LIGHTNING_BOLT_THUNDER, SoundSource.PLAYERS, 1.4f, 1.4f);
