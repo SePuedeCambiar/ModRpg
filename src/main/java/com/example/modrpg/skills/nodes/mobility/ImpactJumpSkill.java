@@ -1,5 +1,6 @@
 package com.example.modrpg.skills.nodes.mobility;
 
+import com.example.modrpg.ai.nemesis.PlayerCombatProfiler;
 import com.example.modrpg.skills.PlayerSkills;
 import com.example.modrpg.skills.data.SkillNode;
 import com.example.modrpg.skills.data.SkillRegistry;
@@ -29,6 +30,9 @@ public class ImpactJumpSkill extends SkillNode {
 
     @Override
     public void onExecuteActive(ServerPlayer player, PlayerSkills skills) {
+        // SPRINT 9: Telemetría de acción aérea pesada para el aprendizaje del Némesis
+        PlayerCombatProfiler.recordAirAction(player);
+
         // Marca al jugador con la bandera de impacto sísmico
         player.addTag(TAG_GROUND_SLAM);
 

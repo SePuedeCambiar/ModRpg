@@ -1,5 +1,6 @@
 package com.example.modrpg.skills.nodes.mobility;
 
+import com.example.modrpg.ai.nemesis.PlayerCombatProfiler;
 import com.example.modrpg.skills.PlayerSkills;
 import com.example.modrpg.skills.SkillEconomy;
 import com.example.modrpg.skills.data.SkillNode;
@@ -30,6 +31,9 @@ public class AirJumpSkill extends SkillNode {
 
     @Override
     public void onExecuteActive(ServerPlayer player, PlayerSkills skills) {
+        // SPRINT 9: Telemetría de acción aérea para el perfilador del Némesis
+        PlayerCombatProfiler.recordAirAction(player);
+
         // 1. Resetea la distancia de caída acumulada antes de saltar
         player.resetFallDistance();
 

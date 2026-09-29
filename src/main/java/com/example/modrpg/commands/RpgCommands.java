@@ -4,6 +4,8 @@ import com.example.modrpg.ModRpg;
 import com.example.modrpg.ai.director.MacroDirectorManager;
 import com.example.modrpg.ai.director.PlayerStressTracker;
 import com.example.modrpg.ai.director.PlayerVulnerabilityDetector;
+import com.example.modrpg.ai.nemesis.NemesisSavedData;
+import com.example.modrpg.ai.nemesis.PlayerCombatProfiler;
 import com.example.modrpg.skills.PlayerSkillsProvider;
 import com.example.modrpg.skills.SkillAttributes;
 import com.example.modrpg.skills.SkillEconomy;
@@ -29,7 +31,7 @@ public class RpgCommands {
         dispatcher.register(Commands.literal("rpg")
 
                 // =========================================================================
-                // 1. COMANDO: /rpg stats (Métricas RPG + Telemetría del Director Alien)
+                // 1. COMANDO: /rpg stats
                 // =========================================================================
                 .then(Commands.literal("stats")
                         .executes(context -> {
@@ -70,16 +72,16 @@ public class RpgCommands {
                                 player.sendSystemMessage(Component.literal("§b⚡ Maná: §f" + (int) skills.getCurrentMana() + " / " + (int) skills.getMaxMana() + " §7(+" + String.format("%.1f", skills.getManaRegenPerSecond()) + "/s)"));
 
                                 // =========================================================================
-                                // NUEVA SECCIÓN: TELEMETRÍA DEL MACRO-DIRECTOR (ALIEN: ISOLATION)
+                                // SPRINT 5, 6 & 7: TELEMETRÍA DE TENSIÓN Y DIRECTOR ALIEN
                                 // =========================================================================
                                 float stress = PlayerStressTracker.getStress(player);
                                 var tier = PlayerStressTracker.getStressTier(stress);
-                                var vulns = PlayerVulnerabilityDetector.getActiveVulnerabilities(player);
+                                Set<PlayerVulnerabilityDetector.VulnerabilityType> vulns = PlayerVulnerabilityDetector.getActiveVulnerabilities(player);
                                 var pacing = MacroDirectorManager.getPacingData(player.getUUID());
 
                                 player.sendSystemMessage(Component.literal("§e--- TENSIÓN PSICOLÓGICA (DIRECTOR) ---"));
                                 player.sendSystemMessage(Component.literal(
-                                        "§7• Nivel de Estrés: " + tier.getBadge() + " §f" + String.format("%.1f%%", stress * 100.0f)
+                                        "§7• Estado de Tensión: " + tier.getBadge() + " §f" + String.format("%.1f%%", stress * 100.0f)
                                 ));
 
                                 String stateTimerStr = (pacing.getStateTimer() > 0) ? " (" + (pacing.getStateTimer() / 20) + "s)" : "";
@@ -90,13 +92,29 @@ public class RpgCommands {
 
                                 if (!vulns.isEmpty()) {
                                     StringBuilder vulnStr = new StringBuilder("§c⚠ Vulnerabilidades Activas: §f");
-                                    for (PlayerVulnerabilityDetector.VulnerabilityType v : vulns) {
-                                        vulnStr.append("[").append(v.getLabel()).append("] ");
-                                    }
+                                    vulns.forEach(v -> vulnStr.append("[").append(v.getLabel()).append("] "));
                                     player.sendSystemMessage(Component.literal(vulnStr.toString()));
                                 } else {
                                     player.sendSystemMessage(Component.literal("§a✔ Estado Táctico: Guardia Alta (Sin vulnerabilidades)"));
                                 }
+
+                                // =========================================================================
+                                // SPRINT 9: PERFILADOR TÁCTICO & NÉMESIS
+                                // =========================================================================
+                                var dominantStyle = PlayerCombatProfiler.getDominantStyle(player);
+                                var nemesisData = NemesisSavedData.get(player.serverLevel());
+
+                                player.sendSystemMessage(Component.literal("§e--- PERFILADOR TÁCTICO & NÉMESIS ---"));
+                                player.sendSystemMessage(Component.literal(
+                                        "§7• Estilo Dominante Detectado: " + dominantStyle.getDisplayName() + " §7(" + dominantStyle.getDescription() + ")"
+                                ));
+                                player.sendSystemMessage(Component.literal(
+                                        "§7• Elemento Mágico Favorito: §b" + PlayerCombatProfiler.getFavoriteElement(player)
+                                ));
+                                player.sendSystemMessage(Component.literal(
+                                        "§7• Capitanes Némesis Acechando: §c" + nemesisData.getActiveCaptainCount() +
+                                                " §7| En Espera de Venganza: §e" + nemesisData.getCaptainsWaitingRevenge().size()
+                                ));
 
                                 player.sendSystemMessage(Component.literal("§6======================================================"));
                             });

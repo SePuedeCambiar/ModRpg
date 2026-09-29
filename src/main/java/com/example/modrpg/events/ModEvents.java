@@ -9,6 +9,7 @@ import com.example.modrpg.ai.director.AudioFootprintTracker;
 import com.example.modrpg.ai.director.MacroDirectorManager;
 import com.example.modrpg.ai.director.PlayerStressTracker;
 import com.example.modrpg.ai.director.PlayerVulnerabilityDetector;
+import com.example.modrpg.ai.nemesis.PlayerCombatProfiler;
 import com.example.modrpg.commands.RpgCommands;
 import com.example.modrpg.networking.ModMessages;
 import com.example.modrpg.networking.PacketSyncMana;
@@ -51,7 +52,11 @@ import net.minecraftforge.event.AttachCapabilitiesEvent;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.EntityJoinLevelEvent;
-import net.minecraftforge.event.entity.living.*;
+import net.minecraftforge.event.entity.living.LivingAttackEvent;
+import net.minecraftforge.event.entity.living.LivingDeathEvent;
+import net.minecraftforge.event.entity.living.LivingEvent;
+import net.minecraftforge.event.entity.living.LivingFallEvent;
+import net.minecraftforge.event.entity.living.LivingHurtEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.event.entity.player.PlayerInteractEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
@@ -92,7 +97,7 @@ public class ModEvents {
     @SubscribeEvent
     public static void onPlayerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
         if (event.getEntity() instanceof ServerPlayer serverPlayer) {
-            serverPlayer.sendSystemMessage(Component.literal("§a[ModRpg] §f¡Sistema modular RPG cargado con éxito! Usa §e/rpg stats§f para ver tu progreso."));
+            serverPlayer.sendSystemMessage(Component.literal("§a[ModRpg] §f¡Sistemas tácticos RPG cargados con éxito! Usa §e/rpg stats§f para ver tu progreso."));
             SkillAttributes.applyModifiers(serverPlayer);
             SkillEconomy.syncSkills(serverPlayer);
         }
@@ -101,7 +106,6 @@ public class ModEvents {
     @SubscribeEvent
     public static void onPlayerLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {
         UUID uuid = event.getEntity().getUUID();
-        // Limpieza de memoria volátil al desconectarse el jugador
         PlayerStressTracker.clearPlayer(uuid);
         PlayerVulnerabilityDetector.clearPlayer(uuid);
         MacroDirectorManager.clearPlayer(uuid);
@@ -113,99 +117,97 @@ public class ModEvents {
     }
 
     // =========================================================================
-    // 1. TICK DEL JUGADOR: Cooldowns, Maná, Telemetría, Audio y Macro-Director
+    // 1. TICK DE SERVIDOR: HABILIDADES, DIRECTOR, HUELLA ACÚSTICA Y ESCUADRONES
     // =========================================================================
     @SubscribeEvent
     public static void onPlayerTick(TickEvent.PlayerTickEvent event) {
-        if (event.phase != TickEvent.Phase.END) return;
+        if (event.phase == TickEvent.Phase.END) {
+            event.player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
+                if (!event.player.level().isClientSide()) {
+                    skills.tickServerSide();
 
-        Player player = event.player;
-
-        player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
-            if (!player.level().isClientSide()) {
-                skills.tickServerSide();
-
-                // Control de duración de Fuerza de Hierro (12s = 240 ticks)
-                if (player.getTags().contains(IronStrengthSkill.TAG_IRON_STRENGTH)) {
-                    CompoundTag data = player.getPersistentData();
-                    int timer = data.getInt("modrpg_iron_strength_timer");
-                    if (timer <= 0) {
-                        data.putInt("modrpg_iron_strength_timer", 240);
-                    } else {
-                        timer--;
+                    // Control de duración de Fuerza de Hierro (12s = 240 ticks)
+                    if (event.player.getTags().contains(IronStrengthSkill.TAG_IRON_STRENGTH)) {
+                        CompoundTag data = event.player.getPersistentData();
+                        int timer = data.getInt("modrpg_iron_strength_timer");
                         if (timer <= 0) {
-                            player.removeTag(IronStrengthSkill.TAG_IRON_STRENGTH);
-                            data.remove("modrpg_iron_strength_timer");
-                            if (player instanceof ServerPlayer sp) {
-                                sp.displayClientMessage(Component.literal("§7🛡 Tu Fuerza de Hierro se ha disipado."), true);
-                            }
+                            data.putInt("modrpg_iron_strength_timer", 240);
                         } else {
-                            data.putInt("modrpg_iron_strength_timer", timer);
-                        }
-                    }
-                }
-
-                if (player instanceof ServerPlayer serverPlayer) {
-                    // Acumulador de práctica de Movilidad por distancia a pie
-                    double dx = serverPlayer.getX() - serverPlayer.xOld;
-                    double dz = serverPlayer.getZ() - serverPlayer.zOld;
-                    double distSq = dx * dx + dz * dz;
-
-                    if (distSq > 0.0001 && serverPlayer.onGround()) {
-                        CompoundTag data = serverPlayer.getPersistentData();
-                        double acc = data.getDouble("modrpg_distance_acc") + Math.sqrt(distSq);
-                        if (acc >= 1.0) {
-                            int fullBlocks = (int) acc;
-                            skills.addPractice(SkillRegistry.COUNTER_DISTANCE_RUN, fullBlocks);
-                            data.putDouble("modrpg_distance_acc", acc - fullBlocks);
+                            timer--;
+                            if (timer <= 0) {
+                                event.player.removeTag(IronStrengthSkill.TAG_IRON_STRENGTH);
+                                data.remove("modrpg_iron_strength_timer");
+                                if (event.player instanceof ServerPlayer sp) {
+                                    sp.displayClientMessage(Component.literal("§7🛡 Tu Fuerza de Hierro se ha disipado."), true);
+                                }
+                            } else {
+                                data.putInt("modrpg_iron_strength_timer", timer);
+                            }
                         }
                     }
 
-                    // A) Emisión de Huellas Acústicas por Movimiento (cada 10 ticks = 0.5s)
-                    if (serverPlayer.tickCount % 10 == 0) {
-                        if (serverPlayer.isShiftKeyDown()) {
-                            AudioFootprintTracker.emitPing(serverPlayer, AudioFootprintTracker.NoiseCategory.SNEAK);
-                        } else if (serverPlayer.isSprinting() && serverPlayer.onGround()) {
-                            AudioFootprintTracker.emitPing(serverPlayer, AudioFootprintTracker.NoiseCategory.SPRINT);
-                        } else if (serverPlayer.getDeltaMovement().horizontalDistanceSqr() > 0.005 && serverPlayer.onGround()) {
-                            AudioFootprintTracker.emitPing(serverPlayer, AudioFootprintTracker.NoiseCategory.WALK);
-                        }
-                    }
+                    // Acumulador de distancia a pie para la rama de Movilidad
+                    if (event.player instanceof ServerPlayer serverPlayer) {
+                        double dx = serverPlayer.getX() - serverPlayer.xOld;
+                        double dz = serverPlayer.getZ() - serverPlayer.zOld;
+                        double distSq = dx * dx + dz * dz;
 
-                    // B) Comprobación de temporizador de minería (reseteo si no pica en 15 ticks)
-                    if (serverPlayer.tickCount % 5 == 0) {
-                        CompoundTag data = serverPlayer.getPersistentData();
-                        int lastMineTick = data.getInt("modrpg_last_mine_tick");
-                        if (serverPlayer.tickCount - lastMineTick > 15) {
-                            PlayerVulnerabilityDetector.resetMiningProgress(serverPlayer.getUUID());
+                        if (distSq > 0.0001 && serverPlayer.onGround()) {
+                            CompoundTag data = serverPlayer.getPersistentData();
+                            double acc = data.getDouble("modrpg_distance_acc") + Math.sqrt(distSq);
+                            if (acc >= 1.0) {
+                                int fullBlocks = (int) acc;
+                                skills.addPractice(SkillRegistry.COUNTER_DISTANCE_RUN, fullBlocks);
+                                data.putDouble("modrpg_distance_acc", acc - fullBlocks);
+                            }
                         }
 
-                        // C) Tick de Escuadrones Tácticos F.E.A.R.
-                        if (serverPlayer.level() instanceof ServerLevel serverLevel) {
+                        // SPRINT 6: Emisión de Huella Acústica por Movimiento (cada 10 ticks = 0.5s)
+                        if (serverPlayer.tickCount % 10 == 0) {
+                            if (serverPlayer.isShiftKeyDown()) {
+                                AudioFootprintTracker.emitPing(serverPlayer, AudioFootprintTracker.NoiseCategory.SNEAK);
+                            } else if (serverPlayer.isSprinting() && serverPlayer.onGround()) {
+                                AudioFootprintTracker.emitPing(serverPlayer, AudioFootprintTracker.NoiseCategory.SPRINT);
+                            } else if (serverPlayer.getDeltaMovement().horizontalDistanceSqr() > 0.005 && serverPlayer.onGround()) {
+                                AudioFootprintTracker.emitPing(serverPlayer, AudioFootprintTracker.NoiseCategory.WALK);
+                            }
+                        }
+
+                        // SPRINT 6: Mantenimiento del contador de minería continua (cada 5 ticks)
+                        if (serverPlayer.tickCount % 5 == 0) {
+                            CompoundTag data = serverPlayer.getPersistentData();
+                            int lastMineTick = data.getInt("modrpg_last_mine_tick");
+                            if (serverPlayer.tickCount - lastMineTick > 15) {
+                                PlayerVulnerabilityDetector.resetMiningProgress(serverPlayer.getUUID());
+                            }
+                        }
+
+                        // SPRINT 5, 6 y 7: Actualizaciones periódicas cada segundo (20 ticks)
+                        if (serverPlayer.tickCount % 20 == 0) {
+                            // A) Sincronización de Maná
+                            ModMessages.sendToPlayer(
+                                    new PacketSyncMana(skills.getCurrentMana(), skills.getMaxMana()),
+                                    serverPlayer
+                            );
+
+                            // B) SPRINT 5: Telemetría de Estrés del Jugador S(t)
+                            PlayerStressTracker.tick(serverPlayer);
+
+                            // C) SPRINT 7: Ciclo del Macro-Director de Pacing (Alien: Isolation)
+                            MacroDirectorManager.tick(serverPlayer);
+
+                            // D) SPRINT 6: Limpieza de huellas acústicas expiradas
+                            AudioFootprintTracker.cleanupExpiredPings(serverPlayer.tickCount);
+                        }
+
+                        // SPRINT 2 y 3: Tick de los Escuadrones Tácticos F.E.A.R. cada 5 ticks
+                        if (serverPlayer.tickCount % 5 == 0 && serverPlayer.level() instanceof ServerLevel serverLevel) {
                             SquadCoordinator.tickSquads(serverLevel);
                         }
                     }
 
-                    // D) Bucle del Segundo (cada 20 ticks = 1.0s)
-                    if (serverPlayer.tickCount % 20 == 0) {
-                        // Sincronización continua de maná
-                        ModMessages.sendToPlayer(
-                                new PacketSyncMana(skills.getCurrentMana(), skills.getMaxMana()),
-                                serverPlayer
-                        );
-
-                        // Sprint 5: Telemetría del Medidor de Estrés S(t)
-                        PlayerStressTracker.tick(serverPlayer);
-
-                        // Sprint 6: Limpieza de huellas de audio expiradas
-                        AudioFootprintTracker.cleanupExpiredPings(serverPlayer.tickCount);
-
-                        // Sprint 7: Cerebro del Macro-Director (Pacing Loop Alien Isolation)
-                        MacroDirectorManager.tick(serverPlayer);
-                    }
-
-                    // Feedback si se agota el maná por sostén de posturas
-                    if (skills.consumeTogglesForceDeactivated()) {
+                    // Notificación en caso de maná agotado en posturas activas
+                    if (skills.consumeTogglesForceDeactivated() && event.player instanceof ServerPlayer serverPlayer) {
                         serverPlayer.displayClientMessage(
                                 Component.literal("§c§l⚡ ¡MANÁ AGOTADO! §7Tus posturas activas se han desactivado."),
                                 true
@@ -214,37 +216,15 @@ public class ModEvents {
                                 SoundEvents.FIRE_EXTINGUISH, SoundSource.PLAYERS, 0.8f, 1.2f);
                         SkillEconomy.syncSkills(serverPlayer);
                     }
+                } else {
+                    skills.tickCooldowns();
                 }
-            } else {
-                skills.tickCooldowns();
-            }
-        });
-    }
-
-    // =========================================================================
-    // 2. INTERACCIÓN CON BLOQUES: Detección Acústica y Vulnerabilidad de Minería
-    // =========================================================================
-    @SubscribeEvent
-    public static void onPlayerLeftClickBlock(PlayerInteractEvent.LeftClickBlock event) {
-        if (!event.getLevel().isClientSide() && event.getEntity() instanceof ServerPlayer player) {
-            BlockPos pos = event.getPos();
-            BlockState state = event.getLevel().getBlockState(pos);
-
-            // Bloques con dureza considerable (piedra, carbón, hierro, diamantes, etc.)
-            if (state.getDestroySpeed(event.getLevel(), pos) >= 1.5f) {
-                PlayerVulnerabilityDetector.recordMiningProgress(player);
-                player.getPersistentData().putInt("modrpg_last_mine_tick", player.tickCount);
-
-                // Emite onda sonora de minería (18m) cada 10 ticks continuos picando
-                if (player.tickCount % 10 == 0) {
-                    AudioFootprintTracker.emitPing(player, AudioFootprintTracker.NoiseCategory.MINING);
-                }
-            }
+            });
         }
     }
 
     // =========================================================================
-    // 3. TICK DE ENTIDADES VIVAS: Esbirros, Decaimiento Elemental y Comandante
+    // 2. TICK DE ENTIDADES VIVAS: ESBIRROS, REACCIONES Y COMANDANTES
     // =========================================================================
     @SubscribeEvent
     public static void onLivingTick(LivingEvent.LivingTickEvent event) {
@@ -275,7 +255,7 @@ public class ModEvents {
     }
 
     // =========================================================================
-    // 4. ATAQUE ENTRANTE: Fuego Amigo, Invulnerabilidad y Dash I-Frames
+    // 3. FUEGO AMIGO, I-FRAMES Y FUERZA DE HIERRO
     // =========================================================================
     @SubscribeEvent
     public static void onLivingAttack(LivingAttackEvent event) {
@@ -310,7 +290,7 @@ public class ModEvents {
     }
 
     // =========================================================================
-    // 5. CAÍDA: Salto con Impacto y Salto de Viento
+    // 4. DAÑO DE CAÍDA: SALTO CON IMPACTO Y SALTO DE VIENTO
     // =========================================================================
     @SubscribeEvent
     public static void onLivingFall(LivingFallEvent event) {
@@ -356,14 +336,14 @@ public class ModEvents {
     }
 
     // =========================================================================
-    // 6. MUERTE: Bajas, Moral de Escuadrón y Práctica Ponderada
+    // 5. BAJAS, RUPTURA DE MORAL Y PRÁCTICA
     // =========================================================================
     @SubscribeEvent
     public static void onLivingDeath(LivingDeathEvent event) {
         LivingEntity victim = event.getEntity();
         if (victim.level().isClientSide() || victim instanceof Player) return;
 
-        // F.E.A.R.: Notificar muerte al coordinador del escuadrón
+        // F.E.A.R.: Notificar muerte al coordinador (limpieza de tokens y pánico si era líder)
         if (victim instanceof Mob mob) {
             SquadCoordinator.onMobDeath(mob);
         }
@@ -444,7 +424,7 @@ public class ModEvents {
     }
 
     // =========================================================================
-    // 7. PROYECTILES DISPARADOS
+    // 6. PROYECTILES
     // =========================================================================
     @SubscribeEvent
     public static void onArrowSpawn(EntityJoinLevelEvent event) {
@@ -463,14 +443,14 @@ public class ModEvents {
     }
 
     // =========================================================================
-    // 8. CÁLCULO DE DAÑO: Afijos, Rompe-Postura, Reacciones y Estrés
+    // 7. CÁLCULO DE DAÑO, ROMPE-POSTURA, PERFILADOR Y AFIJOS
     // =========================================================================
     @SubscribeEvent
     public static void onLivingHurt(LivingHurtEvent event) {
         Entity attacker = event.getSource().getEntity();
         Entity target = event.getEntity();
 
-        // A) AFIJO: ESCUDO RÚNICO (Desvía flechas y proyectiles frontales)
+        // A. AFIJO: ESCUDO RÚNICO (Desvía flechas frontales)
         if (target instanceof Monster monster && monster.getTags().contains("modrpg_affix_runic_shield")) {
             if (event.getSource().getDirectEntity() instanceof Projectile projectile) {
                 Vec3 look = monster.getLookAngle();
@@ -488,7 +468,7 @@ public class ModEvents {
             }
         }
 
-        // B) AFIJO: VAMPÍRICO (Cura 25% del daño infligido)
+        // B. AFIJO: VAMPÍRICO (Cura 25% del daño infligido)
         if (attacker instanceof Monster monster && monster.getTags().contains("modrpg_affix_vampiric")) {
             float heal = event.getAmount() * 0.25f;
             monster.heal(heal);
@@ -497,7 +477,7 @@ public class ModEvents {
             }
         }
 
-        // C) AFIJO: QUEMADOR DE MANÁ
+        // C. AFIJO: QUEMADOR DE MANÁ (Drena 20 de maná al impactar)
         if (attacker instanceof Monster monster && monster.getTags().contains("modrpg_affix_mana_burn")) {
             if (target instanceof ServerPlayer player) {
                 player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
@@ -508,9 +488,19 @@ public class ModEvents {
             }
         }
 
-        // D) SI EL JUGADOR ES EL AGRESOR
+        // D. SI EL JUGADOR ES QUIEN ATACA:
         if (attacker instanceof ServerPlayer player && target instanceof LivingEntity livingTarget) {
             MinionHelper.redirectMinionsTarget(player, livingTarget, 16.0);
+
+            // SPRINT 9: Telemetría Ofensiva del Perfilador Némesis
+            if (event.getSource().getDirectEntity() instanceof AbstractArrow) {
+                PlayerCombatProfiler.recordRangedDamage(player, event.getAmount());
+            } else if (event.getSource().is(DamageTypes.MAGIC) || event.getSource().is(DamageTypes.INDIRECT_MAGIC)) {
+                String favElement = PlayerCombatProfiler.getFavoriteElement(player);
+                PlayerCombatProfiler.recordMagicCast(player, favElement);
+            } else {
+                PlayerCombatProfiler.recordMeleeDamage(player, event.getAmount());
+            }
 
             // Interrupción de telegrafiado amarillo (Rompe-Postura)
             if (livingTarget instanceof Mob mob && mob.getTags().contains(TacticalCasterGoal.TAG_INTERRUPTIBLE)) {
@@ -527,7 +517,7 @@ public class ModEvents {
                 event.setAmount(event.getAmount() * 1.30f);
             }
 
-            // Rotura de hielo abisal (+50%)
+            // Rotura de hielo por Fragilidad Abisal (+50% Daño Físico)
             if (livingTarget.getTags().contains("modrpg_brittle_ice")) {
                 livingTarget.removeTag("modrpg_brittle_ice");
                 event.setAmount(event.getAmount() * 1.50f);
@@ -559,10 +549,15 @@ public class ModEvents {
             });
         }
 
-        // E) SI EL JUGADOR ES LA VÍCTIMA QUE RECIBE EL GOLPE
+        // E. SI EL JUGADOR ES QUIEN RECIBE EL GOLPE:
         if (target instanceof ServerPlayer victim) {
-            // SPRINT 5: Pico de estrés inmediato en la telemetría del Director (+0.15)
+            // SPRINT 5: Pico instantáneo en el medidor de estrés
             PlayerStressTracker.onPlayerDamaged(victim, event.getAmount());
+
+            // SPRINT 9: Telemetría de Bloqueo de Escudo para el Némesis
+            if (victim.isBlocking()) {
+                PlayerCombatProfiler.recordShieldBlock(victim);
+            }
 
             victim.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
                 skills.addPractice(SkillRegistry.COUNTER_DAMAGE_BLOCKED, 1);
@@ -584,7 +579,29 @@ public class ModEvents {
     }
 
     // =========================================================================
-    // 9. INICIALIZACIÓN DE MOBS HOSTILES
+    // 8. SPRINT 6: RUIDO Y VULNERABILIDAD POR PICAR BLOQUES DUROS
+    // =========================================================================
+    @SubscribeEvent
+    public static void onPlayerLeftClickBlock(PlayerInteractEvent.LeftClickBlock event) {
+        if (!event.getLevel().isClientSide() && event.getEntity() instanceof ServerPlayer player) {
+            BlockPos pos = event.getPos();
+            BlockState state = event.getLevel().getBlockState(pos);
+
+            // Bloques con dureza considerable (piedra, minerales, etc.)
+            if (state.getDestroySpeed(event.getLevel(), pos) >= 1.5f) {
+                PlayerVulnerabilityDetector.recordMiningProgress(player);
+                player.getPersistentData().putInt("modrpg_last_mine_tick", player.tickCount);
+
+                // Emisión de pulso acústico de minería cada 10 ticks
+                if (player.tickCount % 10 == 0) {
+                    AudioFootprintTracker.emitPing(player, AudioFootprintTracker.NoiseCategory.MINING);
+                }
+            }
+        }
+    }
+
+    // =========================================================================
+    // 9. INICIALIZACIÓN DE IA Y BUILDS DE MOBS
     // =========================================================================
     @SubscribeEvent
     public static void onMonsterSpawn(EntityJoinLevelEvent event) {
