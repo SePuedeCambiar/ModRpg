@@ -2,6 +2,7 @@ package com.example.modrpg.commands;
 
 import com.example.modrpg.ModRpg;
 import com.example.modrpg.ai.director.PlayerStressTracker;
+import com.example.modrpg.ai.director.PlayerVulnerabilityDetector;
 import com.example.modrpg.skills.PlayerSkillsProvider;
 import com.example.modrpg.skills.SkillAttributes;
 import com.example.modrpg.skills.SkillEconomy;
@@ -19,13 +20,15 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 
+import java.util.Set;
+
 public class RpgCommands {
 
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         dispatcher.register(Commands.literal("rpg")
 
                 // =========================================================================
-                // 1. COMANDO: /rpg stats
+                // 1. COMANDO: /rpg stats (Estadísticas RPG + Telemetría del Director Alien)
                 // =========================================================================
                 .then(Commands.literal("stats")
                         .executes(context -> {
@@ -66,15 +69,24 @@ public class RpgCommands {
                                 player.sendSystemMessage(Component.literal("§b⚡ Maná: §f" + (int) skills.getCurrentMana() + " / " + (int) skills.getMaxMana() + " §7(+" + String.format("%.1f", skills.getManaRegenPerSecond()) + "/s)"));
 
                                 // =========================================================================
-                                // SPRINT 5: TELEMETRÍA DEL MACRO-DIRECTOR (TENSIÓN Y ESTRÉS)
+                                // SPRINT 5 & 6: TELEMETRÍA DEL MACRO-DIRECTOR (ALIEN: ISOLATION)
                                 // =========================================================================
                                 float stress = PlayerStressTracker.getStress(player);
                                 var tier = PlayerStressTracker.getStressTier(stress);
+                                Set<PlayerVulnerabilityDetector.VulnerabilityType> vulns = PlayerVulnerabilityDetector.getActiveVulnerabilities(player);
 
                                 player.sendSystemMessage(Component.literal("§e--- TENSIÓN PSICOLÓGICA (DIRECTOR) ---"));
                                 player.sendSystemMessage(Component.literal(
                                         "§7• Estado de Tensión: " + tier.getBadge() + " §f" + String.format("%.1f%%", stress * 100.0f)
                                 ));
+
+                                if (!vulns.isEmpty()) {
+                                    StringBuilder vulnStr = new StringBuilder("§c⚠ Oportunidades de Emboscada: §f");
+                                    vulns.forEach(v -> vulnStr.append("[").append(v.getLabel()).append("] "));
+                                    player.sendSystemMessage(Component.literal(vulnStr.toString()));
+                                } else {
+                                    player.sendSystemMessage(Component.literal("§a✔ Estado Táctico: Guardia Alta (Sin vulnerabilidades)"));
+                                }
 
                                 player.sendSystemMessage(Component.literal("§6======================================================"));
                             });

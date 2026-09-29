@@ -1,5 +1,6 @@
 package com.example.modrpg.networking;
 
+import com.example.modrpg.ai.director.AudioFootprintTracker;
 import com.example.modrpg.skills.PlayerSkillsProvider;
 import com.example.modrpg.skills.SkillEconomy;
 import com.example.modrpg.skills.data.SkillNode;
@@ -66,7 +67,15 @@ public class PacketCastSkill {
                     skills.setCooldown(node.getId(), node.getDefaultCooldownTicks());
                 }
 
+                // Ejecución física del nodo
                 node.onExecuteActive(player, skills);
+
+                // =========================================================================
+                // SPRINT 6: Emisión de Huella Acústica Arcana (24 metros)
+                // El estallido mágico delata la posición del jugador a monstruos acechadores
+                // =========================================================================
+                AudioFootprintTracker.emitPing(player, AudioFootprintTracker.NoiseCategory.SPELL_CAST);
+
                 SkillEconomy.syncSkills(player);
             });
         });
