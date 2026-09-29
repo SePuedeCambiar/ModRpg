@@ -1,6 +1,7 @@
 package com.example.modrpg.commands;
 
 import com.example.modrpg.ModRpg;
+import com.example.modrpg.ai.director.PlayerStressTracker;
 import com.example.modrpg.skills.PlayerSkillsProvider;
 import com.example.modrpg.skills.SkillAttributes;
 import com.example.modrpg.skills.SkillEconomy;
@@ -63,6 +64,17 @@ public class RpgCommands {
 
                                 player.sendSystemMessage(Component.literal("§e--- ENERGÍA ---"));
                                 player.sendSystemMessage(Component.literal("§b⚡ Maná: §f" + (int) skills.getCurrentMana() + " / " + (int) skills.getMaxMana() + " §7(+" + String.format("%.1f", skills.getManaRegenPerSecond()) + "/s)"));
+
+                                // =========================================================================
+                                // SPRINT 5: TELEMETRÍA DEL MACRO-DIRECTOR (TENSIÓN Y ESTRÉS)
+                                // =========================================================================
+                                float stress = PlayerStressTracker.getStress(player);
+                                var tier = PlayerStressTracker.getStressTier(stress);
+
+                                player.sendSystemMessage(Component.literal("§e--- TENSIÓN PSICOLÓGICA (DIRECTOR) ---"));
+                                player.sendSystemMessage(Component.literal(
+                                        "§7• Estado de Tensión: " + tier.getBadge() + " §f" + String.format("%.1f%%", stress * 100.0f)
+                                ));
 
                                 player.sendSystemMessage(Component.literal("§6======================================================"));
                             });

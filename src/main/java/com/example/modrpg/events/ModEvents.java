@@ -5,6 +5,7 @@ import com.example.modrpg.ai.ChampionAffix;
 import com.example.modrpg.ai.EnemyRpgManager;
 import com.example.modrpg.ai.SquadCoordinator;
 import com.example.modrpg.ai.TacticalCasterGoal;
+import com.example.modrpg.ai.director.PlayerStressTracker;
 import com.example.modrpg.commands.RpgCommands;
 import com.example.modrpg.networking.ModMessages;
 import com.example.modrpg.networking.PacketSyncMana;
@@ -96,12 +97,18 @@ public class ModEvents {
     }
 
     @SubscribeEvent
+    public static void onPlayerLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {
+        // Limpieza de memoria del medidor de estrés al desconectarse
+        PlayerStressTracker.clearPlayer(event.getEntity().getUUID());
+    }
+
+    @SubscribeEvent
     public static void onRegisterCommands(RegisterCommandsEvent event) {
         RpgCommands.register(event.getDispatcher());
     }
 
     // =========================================================================
-    // 1. TICK DE SERVIDOR: Cooldowns, I-Frames, Drenaje de Maná y F.E.A.R. Tokens
+    // 1. Tick de Jugador: Cooldowns, I-Frames, Drenaje, Maná, Estrés y Escuadrones
     // =========================================================================
     @SubscribeEvent
     public static void onPlayerTick(TickEvent.PlayerTickEvent event) {
@@ -147,7 +154,7 @@ public class ModEvents {
                         }
                     }
 
-                    // Feedback si se agota el maná por posturas activas
+                    // Feedback si se agota el maná
                     if (skills.consumeTogglesForceDeactivated() && event.player instanceof ServerPlayer serverPlayer) {
                         serverPlayer.displayClientMessage(
                                 Component.literal("§c§l⚡ ¡MANÁ AGOTADO! §7Tus posturas activas se han desactivado."),
@@ -158,15 +165,19 @@ public class ModEvents {
                         SkillEconomy.syncSkills(serverPlayer);
                     }
 
-                    // Sincronización continua de maná cada segundo
+                    // Ciclo de evaluación de 1 segundo (20 ticks)
                     if (event.player.tickCount % 20 == 0 && event.player instanceof ServerPlayer serverPlayer) {
+                        // A) Sincronización continua de maná
                         ModMessages.sendToPlayer(
                                 new PacketSyncMana(skills.getCurrentMana(), skills.getMaxMana()),
                                 serverPlayer
                         );
+
+                        // B) Telemetría del Medidor de Estrés del Director Alien (Sprint 5)
+                        PlayerStressTracker.tick(serverPlayer);
                     }
 
-                    // SPRINT 2: Tick del cerebro de escuadrones F.E.A.R. pasando el ServerLevel
+                    // F.E.A.R.: Tick del cerebro de escuadrones tácticos cada 5 ticks
                     if (event.player.tickCount % 5 == 0 && event.player.level() instanceof ServerLevel serverLevel) {
                         SquadCoordinator.tickSquads(serverLevel);
                     }
@@ -178,7 +189,7 @@ public class ModEvents {
     }
 
     // =========================================================================
-    // 2. TICK DE ENTIDADES VIVAS: Esbirros, Decaimiento Elemental y Comandantes
+    // 2. Tick de Entidades Vivas: Esbirros, Decaimiento Elemental y Aura Líder
     // =========================================================================
     @SubscribeEvent
     public static void onLivingTick(LivingEvent.LivingTickEvent event) {
@@ -209,7 +220,7 @@ public class ModEvents {
     }
 
     // =========================================================================
-    // 3. FUEGO AMIGO + I-FRAMES DEL DASH + FUERZA DE HIERRO
+    // 3. Fuego Amigo + I-Frames del Dash + Fuerza de Hierro
     // =========================================================================
     @SubscribeEvent
     public static void onLivingAttack(LivingAttackEvent event) {
@@ -244,7 +255,7 @@ public class ModEvents {
     }
 
     // =========================================================================
-    // 4. DAÑO DE CAÍDA: Ground Slam y Salto de Viento
+    // 4. Caída: Salto con Impacto y Salto de Viento
     // =========================================================================
     @SubscribeEvent
     public static void onLivingFall(LivingFallEvent event) {
@@ -290,14 +301,14 @@ public class ModEvents {
     }
 
     // =========================================================================
-    // 5. MUERTE: Ruptura de Moral de Escuadrón y Práctica Ponderada
+    // 5. Bajas, Ruptura de Moral de Escuadrón y Práctica Ponderada
     // =========================================================================
     @SubscribeEvent
     public static void onLivingDeath(LivingDeathEvent event) {
         LivingEntity victim = event.getEntity();
         if (victim.level().isClientSide() || victim instanceof Player) return;
 
-        // F.E.A.R. SPRINT 1 & 2: Notificar muerte, liberar tokens y romper moral si era Líder
+        // F.E.A.R.: Notificar muerte al coordinador (libera tokens y activa pánico si era líder)
         if (victim instanceof Mob mob) {
             SquadCoordinator.onMobDeath(mob);
         }
@@ -378,7 +389,7 @@ public class ModEvents {
     }
 
     // =========================================================================
-    // 6. GESTIÓN DE PROYECTILES
+    // 6. Proyectiles
     // =========================================================================
     @SubscribeEvent
     public static void onArrowSpawn(EntityJoinLevelEvent event) {
@@ -397,7 +408,7 @@ public class ModEvents {
     }
 
     // =========================================================================
-    // 7. CÁLCULO DE DAÑO, INTERRUPCIONES (STAGGER), AFIJOS Y COMBOS
+    // 7. Cálculo de Daño, Interrupciones, Afijos, Estrés y Reacciones
     // =========================================================================
     @SubscribeEvent
     public static void onLivingHurt(LivingHurtEvent event) {
@@ -422,7 +433,7 @@ public class ModEvents {
             }
         }
 
-        // B. AFIJO: VAMPÍRICO (Cura el 25% del daño infligido)
+        // B. AFIJO: VAMPÍRICO (El monstruo se cura 25% del daño infligido)
         if (attacker instanceof Monster monster && monster.getTags().contains("modrpg_affix_vampiric")) {
             float heal = event.getAmount() * 0.25f;
             monster.heal(heal);
@@ -431,7 +442,7 @@ public class ModEvents {
             }
         }
 
-        // C. AFIJO: QUEMADOR DE MANÁ (Drena 20 de maná al impactar)
+        // C. AFIJO: QUEMADOR DE MANÁ (Drena 20 de maná al impactar al jugador)
         if (attacker instanceof Monster monster && monster.getTags().contains("modrpg_affix_mana_burn")) {
             if (target instanceof ServerPlayer player) {
                 player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
@@ -442,11 +453,11 @@ public class ModEvents {
             }
         }
 
-        // Si el jugador es quien ataca
+        // D. SI EL JUGADOR ES QUIEN ATACA
         if (attacker instanceof ServerPlayer player && target instanceof LivingEntity livingTarget) {
             MinionHelper.redirectMinionsTarget(player, livingTarget, 16.0);
 
-            // D. INTERRUPCIÓN DE TELEGRAFIADO AMARILLO (ROMPE-POSTURA F.E.A.R.)
+            // INTERRUPCIÓN DE TELEGRAFIADO AMARILLO (ROMPE-POSTURA)
             if (livingTarget instanceof Mob mob && mob.getTags().contains(TacticalCasterGoal.TAG_INTERRUPTIBLE)) {
                 if (player.getAttackStrengthScale(0.5f) >= 0.85f) {
                     TacticalCasterGoal.interruptCaster(mob, player);
@@ -456,12 +467,12 @@ public class ModEvents {
                 }
             }
 
-            // E. DAÑO CRÍTICO POR POSTURA ROTA (+30% Daño)
+            // DAÑO CRÍTICO POR POSTURA ROTA (+30% Daño)
             if (livingTarget.getTags().contains(TacticalCasterGoal.TAG_STAGGERED)) {
                 event.setAmount(event.getAmount() * 1.30f);
             }
 
-            // F. ROTURA DE HIELO POR FRAGILIDAD ABISAL (+50% Daño Físico)
+            // ROTURA DE HIELO POR FRAGILIDAD ABISAL (+50% Daño Físico)
             if (livingTarget.getTags().contains("modrpg_brittle_ice")) {
                 livingTarget.removeTag("modrpg_brittle_ice");
                 event.setAmount(event.getAmount() * 1.50f);
@@ -493,8 +504,11 @@ public class ModEvents {
             });
         }
 
-        // Si el jugador es quien recibe el golpe
+        // E. SI EL JUGADOR ES QUIEN RECIBE EL GOLPE
         if (target instanceof ServerPlayer victim) {
+            // SPRINT 5: Registrar daño entrante en el Medidor de Estrés (+0.15)
+            PlayerStressTracker.onPlayerDamaged(victim, event.getAmount());
+
             victim.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
                 skills.addPractice(SkillRegistry.COUNTER_DAMAGE_BLOCKED, 1);
 
@@ -515,7 +529,7 @@ public class ModEvents {
     }
 
     // =========================================================================
-    // 8. INICIALIZACIÓN DE ESCUADRONES E IA DE MONSTRUOS
+    // 8. Inicialización de IA y Builds de Mobs
     // =========================================================================
     @SubscribeEvent
     public static void onMonsterSpawn(EntityJoinLevelEvent event) {
