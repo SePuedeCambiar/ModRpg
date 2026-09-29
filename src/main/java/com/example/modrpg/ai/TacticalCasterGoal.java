@@ -1,5 +1,7 @@
 package com.example.modrpg.ai;
 
+import com.example.modrpg.ai.feedback.SquadBarkManager;
+import com.example.modrpg.ai.feedback.TelegraphVisualHelper;
 import com.example.modrpg.skills.magic.modular.CraftedSpell;
 import com.example.modrpg.skills.magic.modular.SpellShape;
 import com.example.modrpg.skills.magic.modular.SpellTiming;
@@ -70,14 +72,16 @@ public class TacticalCasterGoal extends Goal {
 
     @Override
     public void tick() {
-        // 1. Estado de Aturdimiento / Rompe-Postura
+        // 1. Estado de Aturdimiento / Rompe-Postura (Stagger)
         int staggerTimer = mob.getPersistentData().getInt("modrpg_stagger_timer");
         if (staggerTimer > 0) {
             mob.getNavigation().stop();
             mob.getPersistentData().putInt("modrpg_stagger_timer", staggerTimer - 1);
+
             if (mob.level() instanceof ServerLevel level) {
-                level.sendParticles(ParticleTypes.CRIT, mob.getX(), mob.getEyeY() + 0.4, mob.getZ(), 2, 0.2, 0.1, 0.2, 0.05);
+                TelegraphVisualHelper.renderStaggerLoop(level, mob);
             }
+
             if (staggerTimer - 1 <= 0) {
                 mob.removeTag(TAG_STAGGERED);
             }
@@ -98,28 +102,26 @@ public class TacticalCasterGoal extends Goal {
         SquadCoordinator.Squad squad = SquadCoordinator.getSquadFor(mob);
 
         // =========================================================================
-        // COMPORTAMIENTO F.E.A.R.: PEELING (RESCATE MUTUO)
+        // MANIOBRA F.E.A.R.: PEELING Y RESCATE REACTIVO
         // =========================================================================
-        if (squad != null) {
-            // A) Si soy un caster frágil a distancia y el jugador se acerca a < 5 bloques, pido auxilio
+        if (squad != null && mob.level() instanceof ServerLevel level) {
+            // A) Caster frágil acorralado a menos de 5 bloques: Pide auxilio
             if (!archetype.isAggressiveRush() && distanceSq < 25.0) {
                 squad.requestPeel(mob, target);
+                SquadBarkManager.triggerBark(mob, SquadBarkManager.BarkType.PEEL_REQUEST, level);
             }
 
-            // B) Si soy la Vanguardia frontal y un aliado pidió auxilio, intercepto de inmediato
+            // B) Vanguardia frontal acude de inmediato a interceptar
             if (archetype.isAggressiveRush() && squad.isPeelRequested()) {
-                mob.getNavigation().moveTo(target, 1.40); // Carga furiosa para obligar al jugador a mirarme
-                if (mob.level() instanceof ServerLevel level && mob.tickCount % 40 == 0) {
-                    level.playSound(null, mob.getX(), mob.getY(), mob.getZ(), SoundEvents.RAVAGER_ROAR, SoundSource.HOSTILE, 1.0f, 1.6f);
-                }
+                mob.getNavigation().moveTo(target, 1.45);
+                SquadBarkManager.triggerBark(mob, SquadBarkManager.BarkType.VANGUARD_INTERCEPT, level);
             }
         }
 
-        // Habilidades secundarias de arquetipos
         handleArchetypeSpecials(target, distanceSq);
 
         // =========================================================================
-        // TELEGRAFIADO DE CANALIZACIÓN
+        // TELEGRAFIADO SENSORIAL DE CANALIZACIÓN (SPRINT 1)
         // =========================================================================
         if (isCharging) {
             chargeTicks++;
@@ -130,17 +132,16 @@ public class TacticalCasterGoal extends Goal {
                 mob.getNavigation().moveTo(target, 1.30);
             }
 
+            int requiredCharge = isRedUnblockable ? 26 : 20;
+
             if (mob.level() instanceof ServerLevel level) {
                 if (isRedUnblockable) {
-                    level.sendParticles(ParticleTypes.FLAME, mob.getX(), mob.getY() + 0.1, mob.getZ(), 6, 0.4, 0.1, 0.4, 0.02);
-                    level.sendParticles(ParticleTypes.SMOKE, target.getX(), target.getY() + 0.1, target.getZ(), 4, 0.3, 0.1, 0.3, 0.01);
+                    TelegraphVisualHelper.renderRedUnblockable(level, mob, chargeTicks, requiredCharge);
                 } else {
-                    level.sendParticles(ParticleTypes.ELECTRIC_SPARK, mob.getX(), mob.getEyeY() + 0.3, mob.getZ(), 5, 0.25, 0.25, 0.25, 0.08);
-                    level.sendParticles(ParticleTypes.WAX_ON, mob.getX(), mob.getEyeY() + 0.2, mob.getZ(), 3, 0.2, 0.2, 0.2, 0.02);
+                    TelegraphVisualHelper.renderYellowInterruptible(level, mob, chargeTicks, requiredCharge);
                 }
             }
 
-            int requiredCharge = isRedUnblockable ? 25 : 20;
             if (chargeTicks >= requiredCharge) {
                 isCharging = false;
                 chargeTicks = 0;
@@ -151,18 +152,15 @@ public class TacticalCasterGoal extends Goal {
             return;
         }
 
-        // =========================================================================
-        // MOVIMIENTO Y POSICIONAMIENTO (FLANQUEO F.E.A.R.)
-        // =========================================================================
+        // Movimiento y flanqueo
         handleMovement(target, distanceSq, hasLineOfSight, squad);
 
         // =========================================================================
-        // DECISIÓN DE DISPARO CON TOKENS DE ESCUADRÓN
+        // DECISIÓN DE DISPARO CON TOKENS Y ANUNCIOS
         // =========================================================================
         double maxCastDistSq = (archetype.isAggressiveRush()) ? 16.0 : 400.0;
 
         if (cooldownTicks <= 0 && hasLineOfSight && distanceSq <= maxCastDistSq) {
-            // F.E.A.R. Token: Pedir permiso al escuadrón antes de saturar al jugador
             boolean canCast = (squad == null) || squad.requestCastingToken(mob);
 
             if (canCast) {
@@ -174,12 +172,8 @@ public class TacticalCasterGoal extends Goal {
 
                 if (isRedUnblockable) {
                     mob.removeTag(TAG_INTERRUPTIBLE);
-                    mob.level().playSound(null, mob.getX(), mob.getY(), mob.getZ(),
-                            SoundEvents.WARDEN_HEARTBEAT, SoundSource.HOSTILE, 1.4f, 1.2f);
                 } else {
                     mob.addTag(TAG_INTERRUPTIBLE);
-                    mob.level().playSound(null, mob.getX(), mob.getY(), mob.getZ(),
-                            SoundEvents.BEACON_AMBIENT, SoundSource.HOSTILE, 0.8f, 1.8f);
                 }
             }
         }
@@ -188,17 +182,13 @@ public class TacticalCasterGoal extends Goal {
     public static void interruptCaster(Mob mob, ServerPlayer player) {
         mob.removeTag(TAG_INTERRUPTIBLE);
         mob.addTag(TAG_STAGGERED);
-        mob.getPersistentData().putInt("modrpg_stagger_timer", 40);
+        mob.getPersistentData().putInt("modrpg_stagger_timer", 45); // 2.25 segundos de aturdimiento
 
         SquadCoordinator.Squad squad = SquadCoordinator.getSquadFor(mob);
         if (squad != null) squad.releaseCastingToken(mob);
 
         ServerLevel level = (ServerLevel) mob.level();
-        level.sendParticles(ParticleTypes.FLASH, mob.getX(), mob.getEyeY(), mob.getZ(), 1, 0, 0, 0, 0);
-        level.sendParticles(ParticleTypes.CRIT, mob.getX(), mob.getEyeY(), mob.getZ(), 20, 0.4, 0.4, 0.4, 0.2);
-
-        level.playSound(null, mob.getX(), mob.getY(), mob.getZ(), SoundEvents.SHIELD_BREAK, SoundSource.PLAYERS, 1.2f, 0.8f);
-        level.playSound(null, mob.getX(), mob.getY(), mob.getZ(), SoundEvents.ANVIL_LAND, SoundSource.PLAYERS, 0.7f, 1.6f);
+        TelegraphVisualHelper.renderStaggerBurst(level, mob);
 
         player.displayClientMessage(Component.literal("§e§l⚡ ¡POSTURA ROTA! §c(+30% Daño Crítico por 2s)"), true);
     }
@@ -216,11 +206,11 @@ public class TacticalCasterGoal extends Goal {
         if (archetype.isAggressiveRush()) {
             mob.getNavigation().moveTo(target, 1.25);
         } else {
-            // F.E.A.R. FLANQUEO: Si hay escuadrón, buscar el ángulo lateral de 60°-90°
-            if (squad != null && distanceSq > 36.0) {
+            if (squad != null && distanceSq > 36.0 && mob.level() instanceof ServerLevel level) {
                 Vec3 flankPos = squad.getFlankingPosition(mob, target);
                 if (flankPos != null) {
                     mob.getNavigation().moveTo(flankPos.x, flankPos.y, flankPos.z, 1.15);
+                    SquadBarkManager.triggerBark(mob, SquadBarkManager.BarkType.FLANKING, level);
                     return;
                 }
             }
