@@ -1,6 +1,7 @@
 package com.example.modrpg.ai;
 
 import com.example.modrpg.ai.feedback.SquadBarkManager;
+import com.example.modrpg.ai.squad.SquadCoverManager;
 import com.example.modrpg.ai.squad.SquadTacticalToken;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.server.level.ServerLevel;
@@ -15,6 +16,11 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
+/**
+ * Cerebro Táctico de Escuadrón estilo F.E.A.R.
+ * Coordina la concurrencia de ataques (Tokens), maniobras de rescate (Peeling),
+ * flanqueos en cono, rupturas de moral por baja de líderes y grafo de coberturas espaciales.
+ */
 public class SquadCoordinator {
 
     public static class Squad {
@@ -22,10 +28,13 @@ public class SquadCoordinator {
         public UUID leaderUUID = null;
         public final Set<UUID> memberUUIDs = Collections.newSetFromMap(new ConcurrentHashMap<>());
 
-        // Piscina de tokens concurrentes
+        // SPRINT 3: Grafo y memoria de coberturas espaciales del escuadrón
+        private final SquadCoverManager coverManager = new SquadCoverManager();
+
+        // SPRINT 2: Piscina de tokens concurrentes clasificados
         private final List<SquadTacticalToken> tokenPool = new CopyOnWriteArrayList<>();
 
-        // Señal de Peeling
+        // Maniobra de Peeling (Rescate Reactivo)
         private UUID peelRequestedBy = null;
         private int peelTimer = 0;
 
@@ -36,20 +45,24 @@ public class SquadCoordinator {
             rebuildTokenPool();
         }
 
+        public SquadCoverManager getCoverManager() {
+            return coverManager;
+        }
+
         /**
-         * Reconfigura la capacidad de tokens según la cantidad de miembros vivos.
-         * Regla: 1 Token de Rescate (Peel), 1 Token de Supresión, y 1 Token de Ataque Primario por cada 3 miembros.
+         * Reconstruye dinámicamente la piscina de tokens según los miembros vivos.
+         * Regla: 1 Token de Rescate (Peel), 1 Token de Supresión y 1 Token Primario cada 3 miembros.
          */
         public void rebuildTokenPool() {
             tokenPool.clear();
 
-            // 1 Token de Peeling (Prioridad 100)
+            // 1 Token de Rescate (Prioridad 100)
             tokenPool.add(new SquadTacticalToken(SquadTacticalToken.TokenType.PEEL));
 
-            // 1 Token de Supresión (Prioridad 10)
+            // 1 Token de Supresión / Hostigamiento (Prioridad 10)
             tokenPool.add(new SquadTacticalToken(SquadTacticalToken.TokenType.SUPPRESSION));
 
-            // Tokens de Ataque Primario escalados (1 cada 3 miembros, mínimo 1)
+            // Tokens de Ataque Primario / Pesado (1 cada 3 miembros, mínimo 1)
             int primaryCount = Math.max(1, memberUUIDs.size() / 3);
             for (int i = 0; i < primaryCount; i++) {
                 tokenPool.add(new SquadTacticalToken(SquadTacticalToken.TokenType.PRIMARY_ATTACK));
@@ -61,18 +74,17 @@ public class SquadCoordinator {
         }
 
         /**
-         * Solicita un token táctico específico. Si el escuadrón está en pánico,
-         * todas las peticiones ofensivas son rechazadas.
+         * Solicita un token táctico específico. Si el grupo está en pánico por la muerte del líder,
+         * se deniegan las peticiones ofensivas.
          */
         public boolean requestToken(Mob mob, SquadTacticalToken.TokenType type, int leaseTicks) {
             if (mob == null || !mob.isAlive()) return false;
 
-            // En pánico por muerte del líder, se prohíbe el ataque coordinado
+            // Durante la ruptura de moral, los ataques ofensivos están bloqueados
             if (isInPanic() && type != SquadTacticalToken.TokenType.PEEL) {
                 return false;
             }
 
-            // Busca un token disponible del tipo solicitado
             for (SquadTacticalToken token : tokenPool) {
                 if (token.getType() == type && (token.isAvailable() || Objects.equals(token.getHolderUUID(), mob.getUUID()))) {
                     return token.claim(mob, leaseTicks);
@@ -82,7 +94,7 @@ public class SquadCoordinator {
         }
 
         /**
-         * Libera un token específico que poseía el mob.
+         * Libera formalmente un token cuando la acción concluye exitosamente.
          */
         public void releaseToken(Mob mob, SquadTacticalToken.TokenType type) {
             if (mob == null) return;
@@ -95,8 +107,8 @@ public class SquadCoordinator {
         }
 
         /**
-         * Revoca INMEDIATAMENTE todos los tokens que posea este mob.
-         * Se ejecuta al morir, sufrir aturdimiento (Rompe-Postura) o caer en pánico.
+         * Revoca INMEDIATAMENTE todos los tokens del portador.
+         * Se invoca en caso de muerte, aturdimiento (Rompe-Postura) o caída en pánico.
          */
         public void forceReleaseAllTokens(UUID mobUUID) {
             if (mobUUID == null) return;
@@ -116,13 +128,36 @@ public class SquadCoordinator {
             return peelRequestedBy != null && peelTimer > 0;
         }
 
+        public UUID getPeelRequestedBy() {
+            return peelRequestedBy;
+        }
+
+        /**
+         * Actualización en cada ciclo del escuadrón.
+         */
         public void tick(ServerLevel level) {
             if (peelTimer > 0) peelTimer--;
             else peelRequestedBy = null;
 
             if (moraleBreakTimer > 0) moraleBreakTimer--;
 
-            // Heartbeat de cada token: verifica que sus portadores sigan activos y sanos
+            // 1. Identificar miembros activos y objetivo compartido
+            List<Mob> aliveMembers = new ArrayList<>();
+            LivingEntity sharedTarget = null;
+
+            for (UUID memberId : memberUUIDs) {
+                if (level.getEntity(memberId) instanceof Mob mob && mob.isAlive()) {
+                    aliveMembers.add(mob);
+                    if (sharedTarget == null && mob.getTarget() != null && mob.getTarget().isAlive()) {
+                        sharedTarget = mob.getTarget();
+                    }
+                }
+            }
+
+            // 2. SPRINT 3: Actualizar el grafo de coberturas espaciales (Time-Sliced a 10 ticks)
+            coverManager.tick(level, sharedTarget, aliveMembers);
+
+            // 3. SPRINT 2: Heartbeat de tokens (auto-revocación si el portador muere o se aturde)
             for (SquadTacticalToken token : tokenPool) {
                 if (token.getState() == SquadTacticalToken.TokenState.ACTIVE) {
                     Mob holder = (token.getHolderUUID() != null) ? (Mob) level.getEntity(token.getHolderUUID()) : null;
@@ -131,6 +166,9 @@ public class SquadCoordinator {
             }
         }
 
+        /**
+         * F.E.A.R. Crossfire: Calcula una posición lateral a 60°-90° del eje Jugador-Tanque.
+         */
         public Vec3 getFlankingPosition(Mob mob, LivingEntity target) {
             Vec3 targetPos = target.position();
             Vec3 mobPos = mob.position();
@@ -138,20 +176,26 @@ public class SquadCoordinator {
             Vec3 forward = targetPos.subtract(mobPos).normalize();
             if (forward.lengthSqr() < 1e-4) return null;
 
-            int side = (mob.hashCode() % 2 == 0) ? 1 : -1;
+            // Alternancia determinista de lado según el UUID del mob
+            int side = (mob.getUUID().hashCode() % 2 == 0) ? 1 : -1;
             Vec3 perpendicular = new Vec3(-forward.z * side, 0, forward.x * side).normalize();
 
+            // Vector a 10 bloques de distancia con 6 bloques de separación lateral
             return targetPos.subtract(forward.scale(10.0)).add(perpendicular.scale(6.0));
         }
 
+        /**
+         * SPRINT 1 & 2: Desencadena la ruptura de moral al morir el líder.
+         */
         public void triggerMoraleBreak(ServerLevel level, Mob deadLeader) {
-            this.moraleBreakTimer = 60; // 3 segundos de ruptura de moral
+            this.moraleBreakTimer = 60; // 3 segundos de pánico
 
-            // Liberar forzosamente todos los tokens del escuadrón
+            // Se revocan todos los tokens ofensivos
             for (SquadTacticalToken token : tokenPool) {
                 token.release();
             }
 
+            // Aviso táctico sonoro y en Action Bar
             SquadBarkManager.triggerBark(deadLeader, SquadBarkManager.BarkType.MORALE_BREAK, level);
 
             Vec3 deathPos = deadLeader.position();
@@ -167,6 +211,9 @@ public class SquadCoordinator {
         }
     }
 
+    // =========================================================================
+    // REGISTRO GLOBAL DE ESCUADRONES EN MEMORIA
+    // =========================================================================
     private static final Map<UUID, Squad> ACTIVE_SQUADS = new ConcurrentHashMap<>();
     private static final Map<UUID, Squad> MOB_SQUAD_MAP = new ConcurrentHashMap<>();
 
@@ -174,6 +221,9 @@ public class SquadCoordinator {
         return (mob != null) ? MOB_SQUAD_MAP.get(mob.getUUID()) : null;
     }
 
+    /**
+     * Vincula al mob a un escuadrón cercano (radio 16m) o funda uno nuevo.
+     */
     public static void assignToSquad(Mob mob) {
         if (mob.level().isClientSide()) return;
         ServerLevel level = (ServerLevel) mob.level();
@@ -191,15 +241,19 @@ public class SquadCoordinator {
 
         squad.memberUUIDs.add(mob.getUUID());
         MOB_SQUAD_MAP.put(mob.getUUID(), squad);
-        squad.rebuildTokenPool(); // Recalcula la piscina de tokens con el nuevo tamaño
+        squad.rebuildTokenPool();
     }
 
+    /**
+     * Limpieza determinista al morir un integrante: libera tokens, limpia coberturas y verifica si era líder.
+     */
     public static void onMobDeath(Mob deadMob) {
         SquadBarkManager.clearMobMemory(deadMob.getUUID());
 
         Squad squad = MOB_SQUAD_MAP.remove(deadMob.getUUID());
         if (squad != null) {
             squad.forceReleaseAllTokens(deadMob.getUUID());
+            squad.getCoverManager().releaseCover(deadMob.getUUID());
             squad.memberUUIDs.remove(deadMob.getUUID());
             squad.rebuildTokenPool();
 
@@ -214,6 +268,9 @@ public class SquadCoordinator {
         }
     }
 
+    /**
+     * Bucle central de actualización de escuadrones ejecutado desde ModEvents.
+     */
     public static void tickSquads(ServerLevel level) {
         for (Squad squad : ACTIVE_SQUADS.values()) {
             squad.tick(level);
