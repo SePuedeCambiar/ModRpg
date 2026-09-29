@@ -100,7 +100,9 @@ public class ModEvents {
         RpgCommands.register(event.getDispatcher());
     }
 
-    // 1. Tick de Servidor: Cooldowns, I-Frames, Drenaje de Posturas, Práctica de Movilidad, Maná y Escuadrones F.E.A.R.
+    // =========================================================================
+    // 1. TICK DE SERVIDOR: Cooldowns, I-Frames, Drenaje de Maná y F.E.A.R. Tokens
+    // =========================================================================
     @SubscribeEvent
     public static void onPlayerTick(TickEvent.PlayerTickEvent event) {
         if (event.phase == TickEvent.Phase.END) {
@@ -145,7 +147,7 @@ public class ModEvents {
                         }
                     }
 
-                    // Feedback si se agota el maná
+                    // Feedback si se agota el maná por posturas activas
                     if (skills.consumeTogglesForceDeactivated() && event.player instanceof ServerPlayer serverPlayer) {
                         serverPlayer.displayClientMessage(
                                 Component.literal("§c§l⚡ ¡MANÁ AGOTADO! §7Tus posturas activas se han desactivado."),
@@ -164,9 +166,9 @@ public class ModEvents {
                         );
                     }
 
-                    // F.E.A.R.: Tick del cerebro de escuadrones tácticos cada 5 ticks
-                    if (event.player.tickCount % 5 == 0) {
-                        SquadCoordinator.tickSquads();
+                    // SPRINT 2: Tick del cerebro de escuadrones F.E.A.R. pasando el ServerLevel
+                    if (event.player.tickCount % 5 == 0 && event.player.level() instanceof ServerLevel serverLevel) {
+                        SquadCoordinator.tickSquads(serverLevel);
                     }
                 } else {
                     skills.tickCooldowns();
@@ -175,7 +177,9 @@ public class ModEvents {
         }
     }
 
-    // 2. Tick de Entidades Vivas: Esbirros, Decaimiento Elemental y Aura de Comandante
+    // =========================================================================
+    // 2. TICK DE ENTIDADES VIVAS: Esbirros, Decaimiento Elemental y Comandantes
+    // =========================================================================
     @SubscribeEvent
     public static void onLivingTick(LivingEvent.LivingTickEvent event) {
         LivingEntity entity = event.getEntity();
@@ -204,7 +208,9 @@ public class ModEvents {
         }
     }
 
-    // 3. Fuego Amigo + I-Frames del Dash + Fuerza de Hierro
+    // =========================================================================
+    // 3. FUEGO AMIGO + I-FRAMES DEL DASH + FUERZA DE HIERRO
+    // =========================================================================
     @SubscribeEvent
     public static void onLivingAttack(LivingAttackEvent event) {
         Entity attacker = event.getSource().getEntity();
@@ -237,7 +243,9 @@ public class ModEvents {
         }
     }
 
-    // 4. Caída: Salto con Impacto y Salto de Viento
+    // =========================================================================
+    // 4. DAÑO DE CAÍDA: Ground Slam y Salto de Viento
+    // =========================================================================
     @SubscribeEvent
     public static void onLivingFall(LivingFallEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
@@ -281,13 +289,15 @@ public class ModEvents {
         }
     }
 
-    // 5. Bajas, Ruptura de Moral de Escuadrón y Práctica Ponderada (Sprint 3 & 4)
+    // =========================================================================
+    // 5. MUERTE: Ruptura de Moral de Escuadrón y Práctica Ponderada
+    // =========================================================================
     @SubscribeEvent
     public static void onLivingDeath(LivingDeathEvent event) {
         LivingEntity victim = event.getEntity();
         if (victim.level().isClientSide() || victim instanceof Player) return;
 
-        // F.E.A.R.: Notificar muerte al coordinador (ruptura de moral si era Líder Comandante)
+        // F.E.A.R. SPRINT 1 & 2: Notificar muerte, liberar tokens y romper moral si era Líder
         if (victim instanceof Mob mob) {
             SquadCoordinator.onMobDeath(mob);
         }
@@ -322,7 +332,6 @@ public class ModEvents {
             player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
                 boolean isRanged = (directAttacker instanceof Projectile) || source.is(DamageTypes.ARROW);
 
-                // Ponderación de práctica cualitativa
                 int practiceReward = 1;
                 String tierLabel = "";
 
@@ -368,7 +377,9 @@ public class ModEvents {
         }
     }
 
-    // 6. Proyectiles
+    // =========================================================================
+    // 6. GESTIÓN DE PROYECTILES
+    // =========================================================================
     @SubscribeEvent
     public static void onArrowSpawn(EntityJoinLevelEvent event) {
         if (!event.getLevel().isClientSide() && event.getEntity() instanceof AbstractArrow arrow) {
@@ -385,20 +396,20 @@ public class ModEvents {
         }
     }
 
-    // 7. Cálculo de Daño, Interrupciones, Afijos y Reacciones (Sprints 1, 2, 3)
+    // =========================================================================
+    // 7. CÁLCULO DE DAÑO, INTERRUPCIONES (STAGGER), AFIJOS Y COMBOS
+    // =========================================================================
     @SubscribeEvent
     public static void onLivingHurt(LivingHurtEvent event) {
         Entity attacker = event.getSource().getEntity();
         Entity target = event.getEntity();
 
-        // =========================================================================
-        // A. AFIJO: ESCUDO RÚNICO (Desvía flechas y proyectiles frontales)
-        // =========================================================================
+        // A. AFIJO: ESCUDO RÚNICO (Desvía proyectiles frontales)
         if (target instanceof Monster monster && monster.getTags().contains("modrpg_affix_runic_shield")) {
             if (event.getSource().getDirectEntity() instanceof Projectile projectile) {
                 Vec3 look = monster.getLookAngle();
                 Vec3 toProjectile = projectile.position().subtract(monster.position()).normalize();
-                if (look.dot(toProjectile) > 0.2) { // Impacto dentro del cono frontal
+                if (look.dot(toProjectile) > 0.2) {
                     event.setCanceled(true);
                     ServerLevel level = (ServerLevel) monster.level();
                     level.sendParticles(ParticleTypes.ENCHANTED_HIT, projectile.getX(), projectile.getY(), projectile.getZ(), 15, 0.3, 0.3, 0.3, 0.1);
@@ -411,9 +422,7 @@ public class ModEvents {
             }
         }
 
-        // =========================================================================
-        // B. AFIJO: VAMPÍRICO (El monstruo se cura 25% del daño infligido)
-        // =========================================================================
+        // B. AFIJO: VAMPÍRICO (Cura el 25% del daño infligido)
         if (attacker instanceof Monster monster && monster.getTags().contains("modrpg_affix_vampiric")) {
             float heal = event.getAmount() * 0.25f;
             monster.heal(heal);
@@ -422,9 +431,7 @@ public class ModEvents {
             }
         }
 
-        // =========================================================================
-        // C. AFIJO: QUEMADOR DE MANÁ (Drena 20 de maná al impactar al jugador)
-        // =========================================================================
+        // C. AFIJO: QUEMADOR DE MANÁ (Drena 20 de maná al impactar)
         if (attacker instanceof Monster monster && monster.getTags().contains("modrpg_affix_mana_burn")) {
             if (target instanceof ServerPlayer player) {
                 player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
@@ -439,7 +446,7 @@ public class ModEvents {
         if (attacker instanceof ServerPlayer player && target instanceof LivingEntity livingTarget) {
             MinionHelper.redirectMinionsTarget(player, livingTarget, 16.0);
 
-            // D. INTERRUPCIÓN DE TELEGRAFIADO AMARILLO (ROMPE-POSTURA)
+            // D. INTERRUPCIÓN DE TELEGRAFIADO AMARILLO (ROMPE-POSTURA F.E.A.R.)
             if (livingTarget instanceof Mob mob && mob.getTags().contains(TacticalCasterGoal.TAG_INTERRUPTIBLE)) {
                 if (player.getAttackStrengthScale(0.5f) >= 0.85f) {
                     TacticalCasterGoal.interruptCaster(mob, player);
@@ -507,7 +514,9 @@ public class ModEvents {
         }
     }
 
-    // 8. Inicialización de IA y Builds de Mobs
+    // =========================================================================
+    // 8. INICIALIZACIÓN DE ESCUADRONES E IA DE MONSTRUOS
+    // =========================================================================
     @SubscribeEvent
     public static void onMonsterSpawn(EntityJoinLevelEvent event) {
         if (!event.getLevel().isClientSide() && event.getEntity() instanceof Monster monster) {

@@ -1,6 +1,7 @@
 package com.example.modrpg.ai;
 
 import com.example.modrpg.ai.feedback.SquadBarkManager;
+import com.example.modrpg.ai.squad.SquadTacticalToken;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.effect.MobEffectInstance;
@@ -12,6 +13,7 @@ import net.minecraft.world.phys.Vec3;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 public class SquadCoordinator {
 
@@ -20,43 +22,113 @@ public class SquadCoordinator {
         public UUID leaderUUID = null;
         public final Set<UUID> memberUUIDs = Collections.newSetFromMap(new ConcurrentHashMap<>());
 
-        private UUID castingTokenHolder = null;
-        private int castingTokenTimer = 0;
+        // Piscina de tokens concurrentes
+        private final List<SquadTacticalToken> tokenPool = new CopyOnWriteArrayList<>();
 
+        // Señal de Peeling
         private UUID peelRequestedBy = null;
         private int peelTimer = 0;
 
-        public boolean requestCastingToken(Mob mob) {
-            if (castingTokenHolder == null || castingTokenHolder.equals(mob.getUUID()) || castingTokenTimer <= 0) {
-                this.castingTokenHolder = mob.getUUID();
-                this.castingTokenTimer = 40;
-                return true;
+        // Máquina de Moral (Pánico tras la muerte del líder)
+        private int moraleBreakTimer = 0;
+
+        public Squad() {
+            rebuildTokenPool();
+        }
+
+        /**
+         * Reconfigura la capacidad de tokens según la cantidad de miembros vivos.
+         * Regla: 1 Token de Rescate (Peel), 1 Token de Supresión, y 1 Token de Ataque Primario por cada 3 miembros.
+         */
+        public void rebuildTokenPool() {
+            tokenPool.clear();
+
+            // 1 Token de Peeling (Prioridad 100)
+            tokenPool.add(new SquadTacticalToken(SquadTacticalToken.TokenType.PEEL));
+
+            // 1 Token de Supresión (Prioridad 10)
+            tokenPool.add(new SquadTacticalToken(SquadTacticalToken.TokenType.SUPPRESSION));
+
+            // Tokens de Ataque Primario escalados (1 cada 3 miembros, mínimo 1)
+            int primaryCount = Math.max(1, memberUUIDs.size() / 3);
+            for (int i = 0; i < primaryCount; i++) {
+                tokenPool.add(new SquadTacticalToken(SquadTacticalToken.TokenType.PRIMARY_ATTACK));
+            }
+        }
+
+        public boolean isInPanic() {
+            return moraleBreakTimer > 0;
+        }
+
+        /**
+         * Solicita un token táctico específico. Si el escuadrón está en pánico,
+         * todas las peticiones ofensivas son rechazadas.
+         */
+        public boolean requestToken(Mob mob, SquadTacticalToken.TokenType type, int leaseTicks) {
+            if (mob == null || !mob.isAlive()) return false;
+
+            // En pánico por muerte del líder, se prohíbe el ataque coordinado
+            if (isInPanic() && type != SquadTacticalToken.TokenType.PEEL) {
+                return false;
+            }
+
+            // Busca un token disponible del tipo solicitado
+            for (SquadTacticalToken token : tokenPool) {
+                if (token.getType() == type && (token.isAvailable() || Objects.equals(token.getHolderUUID(), mob.getUUID()))) {
+                    return token.claim(mob, leaseTicks);
+                }
             }
             return false;
         }
 
-        public void releaseCastingToken(Mob mob) {
-            if (Objects.equals(this.castingTokenHolder, mob.getUUID())) {
-                this.castingTokenHolder = null;
-                this.castingTokenTimer = 0;
+        /**
+         * Libera un token específico que poseía el mob.
+         */
+        public void releaseToken(Mob mob, SquadTacticalToken.TokenType type) {
+            if (mob == null) return;
+            for (SquadTacticalToken token : tokenPool) {
+                if (token.getType() == type && Objects.equals(token.getHolderUUID(), mob.getUUID())) {
+                    token.release();
+                    break;
+                }
+            }
+        }
+
+        /**
+         * Revoca INMEDIATAMENTE todos los tokens que posea este mob.
+         * Se ejecuta al morir, sufrir aturdimiento (Rompe-Postura) o caer en pánico.
+         */
+        public void forceReleaseAllTokens(UUID mobUUID) {
+            if (mobUUID == null) return;
+            for (SquadTacticalToken token : tokenPool) {
+                if (Objects.equals(token.getHolderUUID(), mobUUID)) {
+                    token.release();
+                }
             }
         }
 
         public void requestPeel(Mob caller, LivingEntity threat) {
             this.peelRequestedBy = caller.getUUID();
-            this.peelTimer = 60;
+            this.peelTimer = 60; // 3 segundos de ventana de rescate
         }
 
         public boolean isPeelRequested() {
             return peelRequestedBy != null && peelTimer > 0;
         }
 
-        public void tick() {
-            if (castingTokenTimer > 0) castingTokenTimer--;
-            else castingTokenHolder = null;
-
+        public void tick(ServerLevel level) {
             if (peelTimer > 0) peelTimer--;
             else peelRequestedBy = null;
+
+            if (moraleBreakTimer > 0) moraleBreakTimer--;
+
+            // Heartbeat de cada token: verifica que sus portadores sigan activos y sanos
+            for (SquadTacticalToken token : tokenPool) {
+                if (token.getState() == SquadTacticalToken.TokenState.ACTIVE) {
+                    Mob holder = (token.getHolderUUID() != null) ? (Mob) level.getEntity(token.getHolderUUID()) : null;
+                    token.tick(holder);
+                }
+            }
         }
 
         public Vec3 getFlankingPosition(Mob mob, LivingEntity target) {
@@ -73,7 +145,13 @@ public class SquadCoordinator {
         }
 
         public void triggerMoraleBreak(ServerLevel level, Mob deadLeader) {
-            // Se utiliza el gestor táctico para transmitir la caída de moral
+            this.moraleBreakTimer = 60; // 3 segundos de ruptura de moral
+
+            // Liberar forzosamente todos los tokens del escuadrón
+            for (SquadTacticalToken token : tokenPool) {
+                token.release();
+            }
+
             SquadBarkManager.triggerBark(deadLeader, SquadBarkManager.BarkType.MORALE_BREAK, level);
 
             Vec3 deathPos = deadLeader.position();
@@ -84,7 +162,7 @@ public class SquadCoordinator {
                 survivor.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SLOWDOWN, 60, 2));
                 survivor.addEffect(new MobEffectInstance(MobEffects.WEAKNESS, 60, 1));
                 survivor.getNavigation().stop();
-                level.sendParticles(ParticleTypes.SMOKE, survivor.getX(), survivor.getEyeY() + 0.3, survivor.getZ(), 10, 0.3, 0.3, 0.3, 0.05);
+                level.sendParticles(ParticleTypes.SMOKE, survivor.getX(), survivor.getEyeY() + 0.3, survivor.getZ(), 12, 0.3, 0.3, 0.3, 0.05);
             }
         }
     }
@@ -93,7 +171,7 @@ public class SquadCoordinator {
     private static final Map<UUID, Squad> MOB_SQUAD_MAP = new ConcurrentHashMap<>();
 
     public static Squad getSquadFor(Mob mob) {
-        return MOB_SQUAD_MAP.get(mob.getUUID());
+        return (mob != null) ? MOB_SQUAD_MAP.get(mob.getUUID()) : null;
     }
 
     public static void assignToSquad(Mob mob) {
@@ -113,6 +191,7 @@ public class SquadCoordinator {
 
         squad.memberUUIDs.add(mob.getUUID());
         MOB_SQUAD_MAP.put(mob.getUUID(), squad);
+        squad.rebuildTokenPool(); // Recalcula la piscina de tokens con el nuevo tamaño
     }
 
     public static void onMobDeath(Mob deadMob) {
@@ -120,7 +199,10 @@ public class SquadCoordinator {
 
         Squad squad = MOB_SQUAD_MAP.remove(deadMob.getUUID());
         if (squad != null) {
+            squad.forceReleaseAllTokens(deadMob.getUUID());
             squad.memberUUIDs.remove(deadMob.getUUID());
+            squad.rebuildTokenPool();
+
             if (deadMob.level() instanceof ServerLevel level) {
                 if (Objects.equals(squad.leaderUUID, deadMob.getUUID())) {
                     squad.triggerMoraleBreak(level, deadMob);
@@ -132,9 +214,9 @@ public class SquadCoordinator {
         }
     }
 
-    public static void tickSquads() {
+    public static void tickSquads(ServerLevel level) {
         for (Squad squad : ACTIVE_SQUADS.values()) {
-            squad.tick();
+            squad.tick(level);
         }
     }
 }
