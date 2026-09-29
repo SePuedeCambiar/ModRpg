@@ -30,7 +30,22 @@ public class ImpactJumpSkill extends SkillNode {
 
     @Override
     public void onExecuteActive(ServerPlayer player, PlayerSkills skills) {
-        // SPRINT 9: Telemetría de acción aérea pesada para el aprendizaje del Némesis
+        // =========================================================================
+        // SPRINT 11: CONTRAMEDIDA NÉMESIS (Bloqueo por Red Gravitatoria)
+        // =========================================================================
+        if (player.getTags().contains("modrpg_grounded_tether")) {
+            player.displayClientMessage(
+                    Component.literal("§c⛓ ¡UNA RED GRAVITATORIA TE ANCLA AL SUELO! No puedes despegar."),
+                    true
+            );
+            player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
+                    SoundEvents.CHAIN_BREAK, SoundSource.PLAYERS, 1.2f, 0.8f);
+            return;
+        }
+
+        // =========================================================================
+        // SPRINT 9: TELEMETRÍA (Alimenta el perfilador de hábitos del Némesis)
+        // =========================================================================
         PlayerCombatProfiler.recordAirAction(player);
 
         // Marca al jugador con la bandera de impacto sísmico

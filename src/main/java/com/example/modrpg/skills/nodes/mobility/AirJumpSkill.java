@@ -31,7 +31,22 @@ public class AirJumpSkill extends SkillNode {
 
     @Override
     public void onExecuteActive(ServerPlayer player, PlayerSkills skills) {
-        // SPRINT 9: Telemetría de acción aérea para el perfilador del Némesis
+        // =========================================================================
+        // SPRINT 11: CONTRAMEDIDA NÉMESIS (Bloqueo por Red Gravitatoria)
+        // =========================================================================
+        if (player.getTags().contains("modrpg_grounded_tether")) {
+            player.displayClientMessage(
+                    Component.literal("§c⛓ ¡UNA RED GRAVITATORIA TE ANCLA AL SUELO! No puedes saltar."),
+                    true
+            );
+            player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
+                    SoundEvents.CHAIN_BREAK, SoundSource.PLAYERS, 1.2f, 0.8f);
+            return;
+        }
+
+        // =========================================================================
+        // SPRINT 9: TELEMETRÍA (Alimenta el perfilador de hábitos del Némesis)
+        // =========================================================================
         PlayerCombatProfiler.recordAirAction(player);
 
         // 1. Resetea la distancia de caída acumulada antes de saltar
