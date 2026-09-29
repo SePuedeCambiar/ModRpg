@@ -1,6 +1,7 @@
 package com.example.modrpg.commands;
 
 import com.example.modrpg.ModRpg;
+import com.example.modrpg.ai.director.MacroDirectorManager;
 import com.example.modrpg.ai.director.PlayerStressTracker;
 import com.example.modrpg.ai.director.PlayerVulnerabilityDetector;
 import com.example.modrpg.skills.PlayerSkillsProvider;
@@ -28,7 +29,7 @@ public class RpgCommands {
         dispatcher.register(Commands.literal("rpg")
 
                 // =========================================================================
-                // 1. COMANDO: /rpg stats (Estadísticas RPG + Telemetría del Director Alien)
+                // 1. COMANDO: /rpg stats (Métricas RPG + Telemetría del Director Alien)
                 // =========================================================================
                 .then(Commands.literal("stats")
                         .executes(context -> {
@@ -69,20 +70,29 @@ public class RpgCommands {
                                 player.sendSystemMessage(Component.literal("§b⚡ Maná: §f" + (int) skills.getCurrentMana() + " / " + (int) skills.getMaxMana() + " §7(+" + String.format("%.1f", skills.getManaRegenPerSecond()) + "/s)"));
 
                                 // =========================================================================
-                                // SPRINT 5 & 6: TELEMETRÍA DEL MACRO-DIRECTOR (ALIEN: ISOLATION)
+                                // NUEVA SECCIÓN: TELEMETRÍA DEL MACRO-DIRECTOR (ALIEN: ISOLATION)
                                 // =========================================================================
                                 float stress = PlayerStressTracker.getStress(player);
                                 var tier = PlayerStressTracker.getStressTier(stress);
-                                Set<PlayerVulnerabilityDetector.VulnerabilityType> vulns = PlayerVulnerabilityDetector.getActiveVulnerabilities(player);
+                                var vulns = PlayerVulnerabilityDetector.getActiveVulnerabilities(player);
+                                var pacing = MacroDirectorManager.getPacingData(player.getUUID());
 
                                 player.sendSystemMessage(Component.literal("§e--- TENSIÓN PSICOLÓGICA (DIRECTOR) ---"));
                                 player.sendSystemMessage(Component.literal(
-                                        "§7• Estado de Tensión: " + tier.getBadge() + " §f" + String.format("%.1f%%", stress * 100.0f)
+                                        "§7• Nivel de Estrés: " + tier.getBadge() + " §f" + String.format("%.1f%%", stress * 100.0f)
                                 ));
 
+                                String stateTimerStr = (pacing.getStateTimer() > 0) ? " (" + (pacing.getStateTimer() / 20) + "s)" : "";
+                                player.sendSystemMessage(Component.literal(
+                                        "§7• Fase del Director: " + pacing.getState().getBadge() + stateTimerStr
+                                ));
+                                player.sendSystemMessage(Component.literal("§8  └ " + pacing.getState().getDescription()));
+
                                 if (!vulns.isEmpty()) {
-                                    StringBuilder vulnStr = new StringBuilder("§c⚠ Oportunidades de Emboscada: §f");
-                                    vulns.forEach(v -> vulnStr.append("[").append(v.getLabel()).append("] "));
+                                    StringBuilder vulnStr = new StringBuilder("§c⚠ Vulnerabilidades Activas: §f");
+                                    for (PlayerVulnerabilityDetector.VulnerabilityType v : vulns) {
+                                        vulnStr.append("[").append(v.getLabel()).append("] ");
+                                    }
                                     player.sendSystemMessage(Component.literal(vulnStr.toString()));
                                 } else {
                                     player.sendSystemMessage(Component.literal("§a✔ Estado Táctico: Guardia Alta (Sin vulnerabilidades)"));
