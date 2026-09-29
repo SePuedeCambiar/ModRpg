@@ -3,6 +3,8 @@ package com.example.modrpg.ai;
 import com.example.modrpg.ai.goals.TacticalBoundingGoal;
 import com.example.modrpg.ai.goals.TacticalFlankGoal;
 import com.example.modrpg.ai.goals.TacticalPeelGoal;
+import com.example.modrpg.ai.goals.director.AmbushAssaultGoal;
+import com.example.modrpg.ai.goals.director.StalkerLurkGoal;
 import com.example.modrpg.skills.PlayerSkillsProvider;
 import com.example.modrpg.skills.magic.modular.CraftedSpell;
 import net.minecraft.network.chat.Component;
@@ -22,14 +24,17 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * Gestor central de inicialización RPG para monstruos.
- * Transforma entidades vanilla en combatientes tácticos con arquetipos,
- * equipo distintivo por silueta, magia modular y metas coordinadas de escuadrón.
+ * Administrador central de la IA hostil:
+ * 1. Inicializa arquetipos de combate (Sniper, Juggernaut, Necromancer, etc.).
+ * 2. Equipa armaduras teñidas y armas temáticas.
+ * 3. Asigna miembros a escuadrones coordinados (SquadCoordinator).
+ * 4. Asciende líderes campeones con afijos únicos.
+ * 5. Inyecta la jerarquía integrada de metas: F.E.A.R. + Alien: Isolation Director.
  */
 public class EnemyRpgManager {
 
     public static final String TAG_INITIALIZED = "modrpg_enemy_initialized";
-    public static final String TAG_CASTER      = "modrpg_enemy_caster";
+    public static final String TAG_CASTER = "modrpg_enemy_caster";
 
     public static void tryInitializeMob(Monster mob) {
         if (mob.getTags().contains(TAG_INITIALIZED)) return;
@@ -38,7 +43,9 @@ public class EnemyRpgManager {
         ServerLevel level = (ServerLevel) mob.level();
         RandomSource random = mob.getRandom();
 
-        // 1. Filtrar arquetipos compatibles según el tipo de entidad (Zombie, Skeleton, Spider, etc.)
+        // =========================================================================
+        // 1. FILTRADO DE ARQUETIPOS COMPATIBLES CON EL TIPO DE MOB
+        // =========================================================================
         List<EnemyArchetype> candidates = new ArrayList<>();
         for (EnemyArchetype archetype : EnemyArchetype.values()) {
             if (archetype.isCompatibleWith(mob.getType())) {
@@ -48,16 +55,19 @@ public class EnemyRpgManager {
 
         if (candidates.isEmpty()) return;
 
-        // 2. Calcular poder del entorno (Días transcurridos + Niveles de los jugadores cercanos)
+        // =========================================================================
+        // 2. CÁLCULO DE PODER DEL ENTORNO (DÍAS + PROGRESIÓN DE JUGADORES)
+        // =========================================================================
         float power = calculatePowerRating(level, mob);
 
-        // 3. Probabilidad de ascender a Lanzador Táctico / Especialista (20% base + escala por poder)
+        // =========================================================================
+        // 3. SELECCIÓN DE ARQUETIPO Y NIVEL DE HECHIZO
+        // =========================================================================
         float casterChance = Math.min(0.65f, 0.20f + (power * 0.01f));
         if (random.nextFloat() > casterChance) return;
 
         EnemyArchetype selectedArchetype = selectArchetypeForPower(candidates, power, random);
 
-        // Nivel de poder del hechizo asignado
         int spellPowerLevel = 1;
         if (power >= 40.0f) spellPowerLevel = 3 + random.nextInt(3);
         else if (power >= 20.0f) spellPowerLevel = 2;
@@ -65,7 +75,9 @@ public class EnemyRpgManager {
         CraftedSpell spell = selectedArchetype.buildSpell(spellPowerLevel);
         mob.addTag(TAG_CASTER);
 
-        // 4. Equipamiento base, siluetas distintivas y armadura de cuero tintada
+        // =========================================================================
+        // 4. EQUIPAMIENTO, TINTADO Y SILUETA VISUAL LEGIBLE
+        // =========================================================================
         mob.setItemSlot(EquipmentSlot.MAINHAND, new ItemStack(selectedArchetype.getMainHandItem()));
         mob.setDropChance(EquipmentSlot.MAINHAND, 0.02f);
 
@@ -87,11 +99,10 @@ public class EnemyRpgManager {
         mob.setDropChance(EquipmentSlot.HEAD, 0.0f);
         mob.setDropChance(EquipmentSlot.CHEST, 0.0f);
 
-        // Nombre táctico visible en el HUD de objetivo (ChampionOverlay)
         mob.setCustomName(Component.literal(selectedArchetype.getColorCode() + "§l" + selectedArchetype.getDisplayName()));
         mob.setCustomNameVisible(false);
 
-        // Modificadores físicos de la Vanguardia frontal
+        // Modificadores de vanguardia pesada
         if (selectedArchetype.isAggressiveRush()) {
             var hpAttr = mob.getAttribute(Attributes.MAX_HEALTH);
             if (hpAttr != null) {
@@ -111,7 +122,7 @@ public class EnemyRpgManager {
         SquadCoordinator.Squad squad = SquadCoordinator.getSquadFor(mob);
 
         // =========================================================================
-        // 6. ASCENSO A CAMPEÓN / LÍDER (Probabilidad del 8% al 20% según poder)
+        // 6. ASCENSO A CAMPEÓN / LÍDER (Probabilidad 8% - 20% según el poder)
         // =========================================================================
         float championChance = Math.min(0.20f, 0.08f + (power * 0.003f));
         if (squad != null && squad.leaderUUID == null && random.nextFloat() < championChance) {
@@ -127,25 +138,31 @@ public class EnemyRpgManager {
         }
 
         // =========================================================================
-        // 7. INYECCIÓN DEL ÁRBOL DE METAS TÁCTICAS F.E.A.R. (SPRINT 4)
+        // 7. INYECCIÓN DE LA JERARQUÍA DE METAS (GOALS) INTEGRADA
         // =========================================================================
-        // Prioridad 1: Maniobra de Rescate (Peeling) - Solo tanques de vanguardia
+        // Prioridad 1: Rescate de Emergencia (Peeling). Solo tanques; interrumpe todo para salvar al caster.
         if (selectedArchetype.isAggressiveRush()) {
             mob.goalSelector.addGoal(1, new TacticalPeelGoal(mob, selectedArchetype));
         }
 
-        // Prioridad 2: Avance escalonado con Fuego de Supresión - Solo tiradores a distancia
+        // Prioridad 2: Asalto en Emboscada. Se activa cuando el Director da luz verde (cierra salidas y pre-avisa).
+        mob.goalSelector.addGoal(2, new AmbushAssaultGoal(mob, selectedArchetype));
+
+        // Prioridad 3: Acecho en Sombras. Mobs que acechan fuera del campo visual y huyen si el jugador los mira fijamente.
+        mob.goalSelector.addGoal(3, new StalkerLurkGoal(mob, selectedArchetype));
+
+        // Prioridad 4: Fuego de Supresión. Los arqueros saturan al jugador para permitir el avance del tanque.
         if (!selectedArchetype.isAggressiveRush() && selectedArchetype.getMainHandItem() == Items.BOW) {
-            mob.goalSelector.addGoal(2, new TacticalBoundingGoal(mob, selectedArchetype));
+            mob.goalSelector.addGoal(4, new TacticalBoundingGoal(mob, selectedArchetype));
         }
 
-        // Prioridad 3: Flanqueo lateral cinemático hacia el punto ciego del jugador
+        // Prioridad 5: Flanqueo Lateral. Asesinos y tropas rápidas buscan ángulos de 90° en el punto ciego.
         if (!selectedArchetype.isAggressiveRush()) {
-            mob.goalSelector.addGoal(3, new TacticalFlankGoal(mob, selectedArchetype));
+            mob.goalSelector.addGoal(5, new TacticalFlankGoal(mob, selectedArchetype));
         }
 
-        // Prioridad 4: Hechicería táctica, uso de coberturas y telegrafiado de castigo
-        mob.goalSelector.addGoal(4, new TacticalCasterGoal(mob, selectedArchetype, spell));
+        // Prioridad 6: Combate Táctico F.E.A.R. Coberturas sin lag, canalizaciones con telegrafiado y Rompe-Postura.
+        mob.goalSelector.addGoal(6, new TacticalCasterGoal(mob, selectedArchetype, spell));
     }
 
     private static EnemyArchetype selectArchetypeForPower(List<EnemyArchetype> candidates, float power, RandomSource random) {
