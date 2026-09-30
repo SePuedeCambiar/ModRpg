@@ -3,6 +3,7 @@ package com.example.modrpg.skills.nodes.hybrid;
 import com.example.modrpg.skills.PlayerSkills;
 import com.example.modrpg.skills.data.SkillNode;
 import com.example.modrpg.skills.data.SkillRegistry;
+import com.example.modrpg.skills.nodes.magic.MinionHelper;
 import com.example.modrpg.skills.nodes.melee.UltracutSkill;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.network.chat.Component;
@@ -18,6 +19,8 @@ import java.util.List;
 
 public class CombinedUltimateSkill extends SkillNode {
 
+    public static final String TAG_COMBINED_EXECUTED = "modrpg_combined_ult_executed";
+
     public CombinedUltimateSkill() {
         super(
                 SkillRegistry.NODE_COMBINED_ULTIMATE,
@@ -31,30 +34,57 @@ public class CombinedUltimateSkill extends SkillNode {
 
     @Override
     public void onLivingHurt(ServerPlayer player, LivingHurtEvent event, PlayerSkills skills) {
-        if (event.getSource().getDirectEntity() == player && player.getTags().contains(UltracutSkill.ULTRACUT_HIT_TAG)) {
+        if (player == null || player.level().isClientSide()) return;
+
+        // Validar si el golpe proviene de un Ultracorte activo
+        if (!player.getTags().contains(UltracutSkill.ULTRACUT_HIT_TAG)) {
+            // Auto-limpieza de la bandera si el Ultracorte ya concluyó
+            player.removeTag(TAG_COMBINED_EXECUTED);
+            return;
+        }
+
+        // SPRINT 2 FIX: Evitar cascada de detonaciones múltiples por cada mob secundario impactado
+        if (player.getTags().contains(TAG_COMBINED_EXECUTED)) {
+            return;
+        }
+
+        // Solo se activa sobre el impacto principal del jugador
+        if (event.getSource().getDirectEntity() == player) {
+            player.addTag(TAG_COMBINED_EXECUTED);
+
             LivingEntity target = event.getEntity();
             ServerLevel level = (ServerLevel) player.level();
 
-            for (int i = 0; i < 20; i++) {
+            // 1. Partículas de espadas etéreas cayendo del cielo
+            for (int i = 0; i < 12; i++) {
                 double offsetX = (Math.random() - 0.5) * 8.0;
                 double offsetZ = (Math.random() - 0.5) * 8.0;
-                level.sendParticles(ParticleTypes.SONIC_BOOM, target.getX() + offsetX, target.getY() + 4.0, target.getZ() + offsetZ, 1, 0, -1.0, 0, 0);
+                level.sendParticles(ParticleTypes.SONIC_BOOM, target.getX() + offsetX, target.getY() + 3.5, target.getZ() + offsetZ, 1, 0, -0.8, 0, 0);
             }
 
+            // 2. Búsqueda de objetivos excluyendo al lanzador, aliados y esbirros propios
             AABB zone = target.getBoundingBox().inflate(7.0);
             List<LivingEntity> enemies = level.getEntitiesOfClass(
                     LivingEntity.class,
                     zone,
-                    e -> e != player && e.isAlive() && !e.isAlliedTo(player)
+                    e -> e != player && e.isAlive() && !MinionHelper.areAllies(player, e)
             );
 
+            // 3. Daño de salpicadura mágico (40% del daño del golpe)
+            // Se usa indirectMagic para no activar golpes directos de espada como DoubleAttackSkill
             float splashDamage = event.getAmount() * 0.40f;
-            for (LivingEntity e : enemies) {
-                e.hurt(player.damageSources().indirectMagic(player, player), splashDamage);
+            for (LivingEntity enemy : enemies) {
+                enemy.hurt(player.damageSources().indirectMagic(player, player), splashDamage);
             }
 
-            level.playSound(null, target.getX(), target.getY(), target.getZ(), SoundEvents.LIGHTNING_BOLT_THUNDER, SoundSource.PLAYERS, 1.4f, 1.4f);
-            player.displayClientMessage(Component.literal("§d§l⚡ ¡LLUVIA DE ESPADAS DEL VACÍO! §fEnemigos alcanzados: §e" + enemies.size()), true);
+            // 4. Audio épico y aviso en pantalla
+            level.playSound(null, target.getX(), target.getY(), target.getZ(),
+                    SoundEvents.LIGHTNING_BOLT_THUNDER, SoundSource.PLAYERS, 1.4f, 1.4f);
+
+            player.displayClientMessage(
+                    Component.literal("§d§l⚡ ¡LLUVIA DE ESPADAS DEL VACÍO! §fEnemigos alcanzados: §e" + enemies.size()),
+                    true
+            );
         }
     }
 }

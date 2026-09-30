@@ -94,7 +94,7 @@ public class ModEvents {
         event.getOriginal().invalidateCaps();
 
         if (event.getEntity() instanceof ServerPlayer serverPlayer) {
-            // SPRINT 1 FIX: Reaplicar modificadores de atributos tras morir (resuelve pérdida de daño/velocidad/paso)
+            // SPRINT 1 FIX: Reaplicar modificadores tras clonar (muerte/respawn)
             SkillAttributes.applyModifiers(serverPlayer);
             SkillEconomy.syncSkills(serverPlayer);
         }
@@ -115,7 +115,7 @@ public class ModEvents {
         PlayerStressTracker.clearPlayer(uuid);
         PlayerVulnerabilityDetector.clearPlayer(uuid);
         MacroDirectorManager.clearPlayer(uuid);
-        // SPRINT 1 FIX: Evitar fuga de memoria en cooldowns de incursión Némesis
+        // SPRINT 1 FIX: Purgar cooldown de incursión Némesis
         NemesisHordeManager.clearPlayer(uuid);
     }
 
@@ -125,13 +125,12 @@ public class ModEvents {
     }
 
     // =========================================================================
-    // 2. TICK DEL SERVIDOR (NIVEL): Escuadrones Tácticos Desacoplados (1x por Tick)
+    // 2. TICK DEL SERVIDOR (NIVEL): Escuadrones Tácticos a 1x por Tick
     // =========================================================================
 
     @SubscribeEvent
     public static void onLevelTick(TickEvent.LevelTickEvent event) {
-        // SPRINT 1 FIX: Correr exactamente una vez por tick del nivel de servidor,
-        // eliminando la multiplicación por número de jugadores y corrigiendo la velocidad de timers.
+        // SPRINT 1 FIX: Corre exactamente 1 vez por tick del nivel sin multiplicar por jugadores
         if (event.phase == TickEvent.Phase.END && event.level instanceof ServerLevel serverLevel) {
             SquadCoordinator.tickSquads(serverLevel);
         }
@@ -143,15 +142,14 @@ public class ModEvents {
 
     @SubscribeEvent
     public static void onEntityLeaveLevel(EntityLeaveLevelEvent event) {
-        // SPRINT 1 FIX: Purgar de SquadCoordinator y SquadBarkManager a los mobs
-        // que despawnean por distancia (>128 bloques) o descarga de chunks sin disparar LivingDeathEvent
+        // SPRINT 1 FIX: Purgar mobs que despawnean por distancia (>128 bloques) o descarga de chunks
         if (!event.getLevel().isClientSide() && event.getEntity() instanceof Mob mob) {
             SquadCoordinator.onMobDespawnOrLeave(mob);
         }
     }
 
     // =========================================================================
-    // 4. TICK DEL JUGADOR (Servidor: Habilidades, Huella de Audio, Estrés y Director)
+    // 4. TICK DEL JUGADOR (Servidor: Habilidades, Movilidad, Maná y Director)
     // =========================================================================
 
     @SubscribeEvent
@@ -204,14 +202,31 @@ public class ModEvents {
                     }
                 }
 
-                // C. Acumulador de práctica de Movilidad por distancia a pie
+                // C. SPRINT 2 FIX: Acumulador de práctica de Movilidad por distancia a pie
                 if (player instanceof ServerPlayer serverPlayer) {
-                    double dx = serverPlayer.getX() - serverPlayer.xOld;
-                    double dz = serverPlayer.getZ() - serverPlayer.zOld;
+                    CompoundTag data = serverPlayer.getPersistentData();
+
+                    double currentX = serverPlayer.getX();
+                    double currentZ = serverPlayer.getZ();
+
+                    if (!data.contains("modrpg_last_x")) {
+                        data.putDouble("modrpg_last_x", currentX);
+                        data.putDouble("modrpg_last_z", currentZ);
+                    }
+
+                    double lastX = data.getDouble("modrpg_last_x");
+                    double lastZ = data.getDouble("modrpg_last_z");
+
+                    double dx = currentX - lastX;
+                    double dz = currentZ - lastZ;
                     double distSq = dx * dx + dz * dz;
 
-                    if (distSq > 0.0001 && serverPlayer.onGround()) {
-                        CompoundTag data = serverPlayer.getPersistentData();
+                    // Permite sprint-jumping, escaleras y desniveles.
+                    // Excluye vehículos, vuelo en creativo/espectador y teletransporte (> 16 bloques en 1 tick).
+                    boolean isFlying = serverPlayer.getAbilities().flying;
+                    boolean isRiding = serverPlayer.isPassenger();
+
+                    if (distSq > 0.0025 && distSq < 256.0 && !isFlying && !isRiding) {
                         double acc = data.getDouble("modrpg_distance_acc") + Math.sqrt(distSq);
                         if (acc >= 1.0) {
                             int fullBlocks = (int) acc;
@@ -220,27 +235,29 @@ public class ModEvents {
                         }
                     }
 
-                    // D. Emisión de Huella Acústica por Movimiento (cada 10 ticks)
+                    data.putDouble("modrpg_last_x", currentX);
+                    data.putDouble("modrpg_last_z", currentZ);
+
+                    // D. SPRINT 2 FIX: Emisión de Huella Acústica basada en delta real
                     if (serverPlayer.tickCount % 10 == 0) {
                         if (serverPlayer.isShiftKeyDown()) {
                             AudioFootprintTracker.emitPing(serverPlayer, AudioFootprintTracker.NoiseCategory.SNEAK);
-                        } else if (serverPlayer.isSprinting() && serverPlayer.onGround()) {
+                        } else if (serverPlayer.isSprinting() && distSq > 0.005) {
                             AudioFootprintTracker.emitPing(serverPlayer, AudioFootprintTracker.NoiseCategory.SPRINT);
-                        } else if (serverPlayer.getDeltaMovement().horizontalDistanceSqr() > 0.005 && serverPlayer.onGround()) {
+                        } else if (distSq > 0.005) {
                             AudioFootprintTracker.emitPing(serverPlayer, AudioFootprintTracker.NoiseCategory.WALK);
                         }
                     }
 
                     // E. Reseteo de minería si el jugador se detiene
                     if (serverPlayer.tickCount % 5 == 0) {
-                        CompoundTag data = serverPlayer.getPersistentData();
                         int lastMineTick = data.getInt("modrpg_last_mine_tick");
                         if (serverPlayer.tickCount - lastMineTick > 15) {
                             PlayerVulnerabilityDetector.resetMiningProgress(serverPlayer.getUUID());
                         }
                     }
 
-                    // F. CICLO CADA SEGUNDO (20 Ticks): Maná, Estrés, Macro-Director, Incursiones y Limpiezas
+                    // F. CICLO CADA SEGUNDO (20 Ticks): Maná, Estrés, Macro-Director, Incursiones y Sincronización
                     if (serverPlayer.tickCount % 20 == 0) {
                         ModMessages.sendToPlayer(
                                 new PacketSyncMana(skills.getCurrentMana(), skills.getMaxMana()),
@@ -251,6 +268,9 @@ public class ModEvents {
                         AudioFootprintTracker.cleanupExpiredPings(serverPlayer.tickCount);
                         MacroDirectorManager.tick(serverPlayer);
                         NemesisHordeManager.tryTriggerNemesisRaid(serverPlayer.serverLevel(), serverPlayer);
+
+                        // SPRINT 2 FIX: Sincronizar skills al cliente para actualizar puntos de práctica en el árbol [K]
+                        SkillEconomy.syncSkills(serverPlayer);
                     }
                 }
 
@@ -466,7 +486,6 @@ public class ModEvents {
                 NemesisDialogueHelper.triggerDeath(level, deadMonster, captain, player);
                 NemesisHordeManager.onNemesisKilled(level, deadMonster, player);
             }
-            // SPRINT 1 FIX: Purgar memoria estática de presentación para evitar fuga de UUID
             NemesisDialogueHelper.clearNemesisMemory(deadMonster.getUUID());
         }
 
@@ -541,7 +560,7 @@ public class ModEvents {
     }
 
     // =========================================================================
-    // 11. CÁLCULO DE DAÑO: Afijos, Contramedidas Némesis, Parry y Reacciones
+    // 11. CÁLCULO DE DAÑO: Escalado CaC, Afijos, Contramedidas Némesis y Reacciones
     // =========================================================================
 
     @SubscribeEvent
@@ -549,6 +568,9 @@ public class ModEvents {
         Entity attacker = event.getSource().getEntity();
         Entity target = event.getEntity();
 
+        // ---------------------------------------------------------------------
+        // A. AFIJOS BÁSICOS DE CAMPEÓN
+        // ---------------------------------------------------------------------
         if (target instanceof Monster monster && monster.getTags().contains("modrpg_affix_runic_shield")) {
             if (event.getSource().getDirectEntity() instanceof Projectile projectile) {
                 Vec3 look = monster.getLookAngle();
@@ -584,6 +606,9 @@ public class ModEvents {
             }
         }
 
+        // ---------------------------------------------------------------------
+        // B. CONTRAMEDIDAS ADAPTATIVAS DEL CAPITÁN NÉMESIS
+        // ---------------------------------------------------------------------
         if (attacker instanceof Monster monster && monster.getTags().contains("modrpg_nemesis_captain") && target instanceof ServerPlayer victim) {
             String trait = monster.getPersistentData().getString("modrpg_nemesis_trait");
             ServerLevel level = (ServerLevel) victim.level();
@@ -643,6 +668,9 @@ public class ModEvents {
             }
         }
 
+        // ---------------------------------------------------------------------
+        // C. SI EL JUGADOR ES EL AGRESOR
+        // ---------------------------------------------------------------------
         if (attacker instanceof ServerPlayer player && target instanceof LivingEntity livingTarget) {
             MinionHelper.redirectMinionsTarget(player, livingTarget, 16.0);
 
@@ -682,11 +710,31 @@ public class ModEvents {
                     skills.addPractice(SkillRegistry.COUNTER_MAGIC_CASTS, 1);
                 }
 
+                // ARQUERÍA: Multiplicador progresivo a distancia
                 if (event.getSource().getDirectEntity() instanceof AbstractArrow) {
                     int rangedLvl = skills.getBranchLevel(SkillRegistry.BRANCH_RANGED);
                     if (rangedLvl > 0) {
                         float bonus = 1.0f + (float) Math.pow(rangedLvl / 100.0, 1.5) * 2.5f;
                         event.setAmount(event.getAmount() * bonus);
+                    }
+                }
+
+                // SPRINT 2 FIX: Escalado real de daño Cuerpo a Cuerpo (CaC)
+                // Se aplica a golpes directos con la mano/arma (no flechas, no magia, no explosiones)
+                boolean isDirectMelee = event.getSource().getDirectEntity() == player
+                        && !(event.getSource().getDirectEntity() instanceof Projectile)
+                        && !event.getSource().is(DamageTypes.ARROW)
+                        && !event.getSource().is(DamageTypes.MAGIC)
+                        && !event.getSource().is(DamageTypes.INDIRECT_MAGIC)
+                        && !event.getSource().is(DamageTypes.THORNS)
+                        && !event.getSource().is(DamageTypes.EXPLOSION);
+
+                if (isDirectMelee) {
+                    int meleeLvl = skills.getBranchLevel(SkillRegistry.BRANCH_MELEE);
+                    if (meleeLvl > 0) {
+                        // Progresión lineal estricta: +2% por nivel (+100% a nivel 50, +200% a nivel 100)
+                        float meleeMultiplier = 1.0f + (meleeLvl * 0.02f);
+                        event.setAmount(event.getAmount() * meleeMultiplier);
                     }
                 }
 
@@ -699,6 +747,9 @@ public class ModEvents {
             });
         }
 
+        // ---------------------------------------------------------------------
+        // D. SI EL JUGADOR ES LA VÍCTIMA
+        // ---------------------------------------------------------------------
         if (target instanceof ServerPlayer victim) {
             if (victim.isBlocking()) {
                 PlayerCombatProfiler.recordShieldBlock(victim);

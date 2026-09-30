@@ -10,12 +10,15 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.damagesource.DamageTypes;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraftforge.event.entity.living.LivingHurtEvent;
 
 public class DoubleAttackSkill extends SkillNode {
 
     public static final String RECURSION_TAG = "modrpg_double_slice_hit";
+    public static final String PLAYER_EXECUTING_TAG = "modrpg_double_attack_active";
 
     public DoubleAttackSkill() {
         super(
@@ -31,22 +34,49 @@ public class DoubleAttackSkill extends SkillNode {
     @Override
     public void onLivingHurt(ServerPlayer player, LivingHurtEvent event, PlayerSkills skills) {
         LivingEntity target = event.getEntity();
-        if (target == null || target.getTags().contains(RECURSION_TAG)) return;
+        if (target == null || !target.isAlive() || player.level().isClientSide()) return;
 
-        if (event.getSource().getDirectEntity() == player && player.getAttackStrengthScale(0.5f) >= 0.92f) {
+        // SPRINT 2 FIX: Evitar bucles de recursión bidireccionales (en jugador y en víctima)
+        if (target.getTags().contains(RECURSION_TAG) || player.getTags().contains(PLAYER_EXECUTING_TAG)) {
+            return;
+        }
+
+        // SPRINT 2 FIX: No duplicar el Ultracorte Final si se está ejecutando
+        if (player.getTags().contains(UltracutSkill.ULTRACUT_HIT_TAG)) {
+            return;
+        }
+
+        // Validar que sea un ataque directo cuerpo a cuerpo (no flechas, no magia, no espinas)
+        boolean isDirectMelee = event.getSource().getDirectEntity() == player
+                && !(event.getSource().getDirectEntity() instanceof Projectile)
+                && !event.getSource().is(DamageTypes.ARROW)
+                && !event.getSource().is(DamageTypes.MAGIC)
+                && !event.getSource().is(DamageTypes.INDIRECT_MAGIC)
+                && !event.getSource().is(DamageTypes.THORNS);
+
+        if (isDirectMelee && player.getAttackStrengthScale(0.5f) >= 0.92f) {
+            // El primer golpe se ajusta al 80% y el segundo hace otro 80% (total 160% de daño)
             float singleHitDamage = event.getAmount() * 0.80f;
             event.setAmount(singleHitDamage);
 
             try {
+                // Marcar ambas entidades para bloquear reentradas en LivingHurtEvent
                 target.addTag(RECURSION_TAG);
+                player.addTag(PLAYER_EXECUTING_TAG);
+
+                int prevInvulnerable = target.invulnerableTime;
                 target.invulnerableTime = 0;
+
+                // Asestar el segundo golpe físico
                 target.hurt(player.damageSources().playerAttack(player), singleHitDamage);
-                target.invulnerableTime = 10;
+
+                target.invulnerableTime = Math.max(prevInvulnerable, 10);
             } finally {
-                // CRÍTICO: Remover tag para que el siguiente golpe vuelva a funcionar
                 target.removeTag(RECURSION_TAG);
+                player.removeTag(PLAYER_EXECUTING_TAG);
             }
 
+            // Efectos visuales y de sonido
             ServerLevel level = (ServerLevel) player.level();
             player.swing(InteractionHand.MAIN_HAND, true);
             level.sendParticles(ParticleTypes.SWEEP_ATTACK, target.getX(), target.getY() + 0.9, target.getZ(), 2, 0.2, 0.2, 0.2, 0.0);
