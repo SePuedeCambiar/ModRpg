@@ -66,27 +66,39 @@ public class SquadBarkManager {
         public int getCooldownTicks() { return cooldownTicks; }
     }
 
-    // Cooldown por entidad y tipo de bark: Map<MobUUID, Map<BarkType, TickStamp>>
-    private static final Map<UUID, Map<BarkType, Integer>> COOLDOWNS = new ConcurrentHashMap<>();
+    // Cooldown por entidad y tipo de bark: Map<MobUUID, Map<BarkType, GameTimeTick>>
+    private static final Map<UUID, Map<BarkType, Long>> COOLDOWNS = new ConcurrentHashMap<>();
 
     /**
      * Emite una señal táctica audible y visible para todos los jugadores dentro de un radio de 18 bloques.
      */
     public static void triggerBark(Mob emitter, BarkType type, ServerLevel level) {
-        if (emitter == null || level.isClientSide() || !emitter.isAlive()) return;
+        if (emitter == null || level.isClientSide()) return;
 
-        int currentTicks = emitter.tickCount;
+        // SPRINT 1 FIX (Bug C-04): MORALE_BREAK ocurre cuando el líder ya murió (isAlive() == false).
+        // Debe permitirse para este bark y exigirse isAlive() para todos los demás.
+        if (type != BarkType.MORALE_BREAK && !emitter.isAlive()) return;
+
+        long currentTick = level.getGameTime();
         UUID mobId = emitter.getUUID();
 
         COOLDOWNS.putIfAbsent(mobId, new ConcurrentHashMap<>());
-        Map<BarkType, Integer> mobCooldowns = COOLDOWNS.get(mobId);
+        Map<BarkType, Long> mobCooldowns = COOLDOWNS.get(mobId);
 
-        int lastTrigger = mobCooldowns.getOrDefault(type, -type.getCooldownTicks());
-        if (currentTicks - lastTrigger < type.getCooldownTicks()) {
+        long lastTrigger = mobCooldowns.getOrDefault(type, -10000L);
+        if (currentTick - lastTrigger < type.getCooldownTicks()) {
             return; // Bloqueado por cooldown para evitar spam auditivo/textual
         }
 
-        mobCooldowns.put(type, currentTicks);
+        mobCooldowns.put(type, currentTick);
+
+        // Failsafe anti-fugas: si el mapa supera las 150 entidades registradas, purgar las inactivas
+        if (COOLDOWNS.size() > 150) {
+            COOLDOWNS.entrySet().removeIf(entry -> {
+                Map<BarkType, Long> map = entry.getValue();
+                return map.values().stream().allMatch(t -> (currentTick - t) > 600L);
+            });
+        }
 
         // 1. Proyectar sonido en el entorno según el tipo de acción
         playBarkSound(emitter, type, level);
@@ -107,7 +119,6 @@ public class SquadBarkManager {
 
         switch (type) {
             case FLANKING -> {
-                // Silbato corto / chasquido táctico
                 level.playSound(null, x, y, z, SoundEvents.NOTE_BLOCK_SNARE.get(), SoundSource.HOSTILE, 1.2f, type.getSoundPitch());
                 level.playSound(null, x, y, z, SoundEvents.BAT_TAKEOFF, SoundSource.HOSTILE, 0.8f, 1.4f);
             }
@@ -131,7 +142,12 @@ public class SquadBarkManager {
         }
     }
 
+    /**
+     * SPRINT 1 FIX: Eliminación atómica y segura de memoria al morir o despawnear el mob.
+     */
     public static void clearMobMemory(UUID mobId) {
-        COOLDOWNS.remove(mobId);
+        if (mobId != null) {
+            COOLDOWNS.remove(mobId);
+        }
     }
 }

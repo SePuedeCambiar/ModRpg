@@ -39,9 +39,20 @@ public class NemesisHordeManager {
     private static final Map<UUID, Long> LAST_RAID_TICK = new ConcurrentHashMap<>();
 
     /**
+     * SPRINT 1 FIX: Evita fugas de memoria purgando los datos de cooldown cuando el jugador sale del servidor.
+     */
+    public static void clearPlayer(UUID playerUUID) {
+        if (playerUUID != null) {
+            LAST_RAID_TICK.remove(playerUUID);
+        }
+    }
+
+    /**
      * Comprueba si hay una incursión Némesis activa combatiendo cerca del jugador.
      */
     public static boolean isNemesisRaidActiveNear(ServerPlayer player) {
+        if (player == null || player.level().isClientSide()) return false;
+
         AABB box = player.getBoundingBox().inflate(48.0);
         List<Monster> activeNemesisMobs = player.serverLevel().getEntitiesOfClass(
                 Monster.class, box, m -> m.getTags().contains(TAG_NEMESIS_SQUAD) && m.isAlive()
@@ -53,7 +64,7 @@ public class NemesisHordeManager {
      * Evalúa y despliega una incursión táctica si las condiciones del Director y del mundo se cumplen.
      */
     public static void tryTriggerNemesisRaid(ServerLevel level, ServerPlayer player) {
-        if (player == null || isNemesisRaidActiveNear(player)) return;
+        if (level == null || player == null || !player.isAlive() || isNemesisRaidActiveNear(player)) return;
 
         long currentTick = level.getGameTime();
         long lastRaid = LAST_RAID_TICK.getOrDefault(player.getUUID(), -72000L);
@@ -86,6 +97,7 @@ public class NemesisHordeManager {
 
         // 2. Fundar el escuadrón táctico
         SquadCoordinator.Squad squad = new SquadCoordinator.Squad();
+        squad.dimension = level.dimension(); // SPRINT 1: Asignar dimensión al fundar escuadrón
 
         // 3. Obtener o generar al Capitán Némesis
         long day = level.getDayTime() / 24000L;
@@ -99,7 +111,6 @@ public class NemesisHordeManager {
                 captain.setStatus(NemesisCaptain.Status.STALKING);
                 nemesisData.addOrUpdateCaptain(captain);
             } else {
-                // Generar nuevo Capitán adaptado
                 var dominantStyle = PlayerCombatProfiler.getDominantStyle(player);
                 String name = NemesisPersonalityEngine.generateProceduralName(random);
                 String title = NemesisPersonalityEngine.assignReactiveTitle(dominantStyle, null, random);
@@ -126,7 +137,6 @@ public class NemesisHordeManager {
             mob.addTag(TAG_NEMESIS_SQUAD);
             EnemyRpgManager.tryInitializeMob(mob);
 
-            // Si es el primer miembro y hay capitán disponible: este mob es el Capitán Némesis
             if (i == 0 && captain != null) {
                 promoteToNemesisCaptain(mob, captain);
                 squad.leaderUUID = mob.getUUID();
@@ -135,7 +145,6 @@ public class NemesisHordeManager {
             squad.memberUUIDs.add(mob.getUUID());
             level.addFreshEntity(mob);
 
-            // Efectos de invocación táctica
             level.sendParticles(ParticleTypes.SMOKE, mob.getX(), mob.getY() + 0.5, mob.getZ(), 10, 0.3, 0.3, 0.3, 0.02);
         }
 
@@ -157,11 +166,9 @@ public class NemesisHordeManager {
         mob.setCustomName(Component.literal("§4§l" + captain.getName() + " §6§l" + captain.getTitle()));
         mob.setCustomNameVisible(true);
 
-        // Equipo visual distintivo
         mob.setItemSlot(EquipmentSlot.HEAD, new ItemStack(Items.DIAMOND_HELMET));
         mob.setDropChance(EquipmentSlot.HEAD, 0.05f);
 
-        // Meta de escape de máxima prioridad (Sprint 11)
         mob.goalSelector.addGoal(0, new com.example.modrpg.ai.nemesis.goals.NemesisEscapeGoal(mob));
     }
 
@@ -177,35 +184,37 @@ public class NemesisHordeManager {
 
     /**
      * Otorga las recompensas legendarias al derrotar a un Capitán Némesis.
+     * SPRINT 1 FIX: Protegido contra player == null en muertes ambientales.
      */
     public static void onNemesisKilled(ServerLevel level, Monster deadCaptain, ServerPlayer player) {
+        if (level == null || deadCaptain == null) return;
         Vec3 pos = deadCaptain.position();
 
         // 1. Partículas y sonido de reto legendario superado
         level.sendParticles(ParticleTypes.TOTEM_OF_UNDYING, pos.x, pos.y + 1.0, pos.z, 50, 0.6, 0.8, 0.6, 0.2);
         level.playSound(null, pos.x, pos.y, pos.z, SoundEvents.UI_TOAST_CHALLENGE_COMPLETE, SoundSource.PLAYERS, 1.5f, 1.0f);
 
-        // 2. Progresión RPG: +25 bajas de élite para pruebas de ascensión del árbol
-        player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
-            skills.addPractice(SkillRegistry.COUNTER_ELITE_KILLS, 25);
-            SkillEconomy.checkMilestones(player, skills);
-            SkillEconomy.syncSkills(player);
-        });
+        // 2. Progresión RPG y experiencia al jugador (si existe)
+        if (player != null) {
+            player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
+                skills.addPractice(SkillRegistry.COUNTER_ELITE_KILLS, 25);
+                SkillEconomy.checkMilestones(player, skills);
+                SkillEconomy.syncSkills(player);
+            });
+            player.giveExperienceLevels(8);
+            player.displayClientMessage(
+                    Component.literal("§6§l★ ¡NÉMESIS DERROTADO! §a+25 Bajas Élite §7| §e+8 Niveles XP §7| §dBotín Legendario"),
+                    false
+            );
+        }
 
-        // 3. Experiencia directa (8 niveles de XP)
-        player.giveExperienceLevels(8);
-
-        // 4. Botín garantizado de alta calidad (Lingote de Netherite o Manzana Dorada Encantada)
-        ItemStack rewardItem = (player.getRandom().nextFloat() < 0.40f)
+        // 3. Botín físico garantizado en el mundo
+        RandomSource random = (player != null) ? player.getRandom() : level.getRandom();
+        ItemStack rewardItem = (random.nextFloat() < 0.40f)
                 ? new ItemStack(Items.NETHERITE_INGOT)
                 : new ItemStack(Items.ENCHANTED_GOLDEN_APPLE);
 
         ItemEntity drop = new ItemEntity(level, pos.x, pos.y + 0.5, pos.z, rewardItem);
         level.addFreshEntity(drop);
-
-        player.displayClientMessage(
-                Component.literal("§6§l★ ¡NÉMESIS DERROTADO! §a+25 Bajas Élite §7| §e+8 Niveles XP §7| §dBotín Legendario"),
-                false
-        );
     }
 }

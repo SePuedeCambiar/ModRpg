@@ -55,6 +55,7 @@ import net.minecraftforge.event.AttachCapabilitiesEvent;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.EntityJoinLevelEvent;
+import net.minecraftforge.event.entity.EntityLeaveLevelEvent;
 import net.minecraftforge.event.entity.living.*;
 import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.event.entity.player.PlayerInteractEvent;
@@ -93,6 +94,8 @@ public class ModEvents {
         event.getOriginal().invalidateCaps();
 
         if (event.getEntity() instanceof ServerPlayer serverPlayer) {
+            // SPRINT 1 FIX: Reaplicar modificadores de atributos tras morir (resuelve pérdida de daño/velocidad/paso)
+            SkillAttributes.applyModifiers(serverPlayer);
             SkillEconomy.syncSkills(serverPlayer);
         }
     }
@@ -112,6 +115,8 @@ public class ModEvents {
         PlayerStressTracker.clearPlayer(uuid);
         PlayerVulnerabilityDetector.clearPlayer(uuid);
         MacroDirectorManager.clearPlayer(uuid);
+        // SPRINT 1 FIX: Evitar fuga de memoria en cooldowns de incursión Némesis
+        NemesisHordeManager.clearPlayer(uuid);
     }
 
     @SubscribeEvent
@@ -120,7 +125,33 @@ public class ModEvents {
     }
 
     // =========================================================================
-    // 2. TICK DEL JUGADOR (Servidor: Habilidades, Huella de Audio, Estrés, Director y Escuadrones)
+    // 2. TICK DEL SERVIDOR (NIVEL): Escuadrones Tácticos Desacoplados (1x por Tick)
+    // =========================================================================
+
+    @SubscribeEvent
+    public static void onLevelTick(TickEvent.LevelTickEvent event) {
+        // SPRINT 1 FIX: Correr exactamente una vez por tick del nivel de servidor,
+        // eliminando la multiplicación por número de jugadores y corrigiendo la velocidad de timers.
+        if (event.phase == TickEvent.Phase.END && event.level instanceof ServerLevel serverLevel) {
+            SquadCoordinator.tickSquads(serverLevel);
+        }
+    }
+
+    // =========================================================================
+    // 3. CICLO DE VIDA DE ENTIDADES: Evicción de Fugas por Despawn / Chunk Unload
+    // =========================================================================
+
+    @SubscribeEvent
+    public static void onEntityLeaveLevel(EntityLeaveLevelEvent event) {
+        // SPRINT 1 FIX: Purgar de SquadCoordinator y SquadBarkManager a los mobs
+        // que despawnean por distancia (>128 bloques) o descarga de chunks sin disparar LivingDeathEvent
+        if (!event.getLevel().isClientSide() && event.getEntity() instanceof Mob mob) {
+            SquadCoordinator.onMobDespawnOrLeave(mob);
+        }
+    }
+
+    // =========================================================================
+    // 4. TICK DEL JUGADOR (Servidor: Habilidades, Huella de Audio, Estrés y Director)
     // =========================================================================
 
     @SubscribeEvent
@@ -153,7 +184,7 @@ public class ModEvents {
                     }
                 }
 
-                // B. SPRINT 11: Control físico y temporizador de la Red Gravitatoria del Némesis
+                // B. Control físico y temporizador de la Red Gravitatoria del Némesis
                 if (player.getTags().contains("modrpg_grounded_tether")) {
                     CompoundTag data = player.getPersistentData();
                     int tetherTimer = data.getInt("modrpg_tether_timer");
@@ -165,7 +196,6 @@ public class ModEvents {
                         }
                     } else {
                         data.putInt("modrpg_tether_timer", tetherTimer - 1);
-                        // Suprime impulsos verticales: aplasta contra el piso
                         Vec3 vel = player.getDeltaMovement();
                         if (vel.y > 0.0) {
                             player.setDeltaMovement(new Vec3(vel.x, -0.2, vel.z));
@@ -190,7 +220,7 @@ public class ModEvents {
                         }
                     }
 
-                    // D. SPRINT 6: Emisión de Huella Acústica por Movimiento (cada 10 ticks)
+                    // D. Emisión de Huella Acústica por Movimiento (cada 10 ticks)
                     if (serverPlayer.tickCount % 10 == 0) {
                         if (serverPlayer.isShiftKeyDown()) {
                             AudioFootprintTracker.emitPing(serverPlayer, AudioFootprintTracker.NoiseCategory.SNEAK);
@@ -201,7 +231,7 @@ public class ModEvents {
                         }
                     }
 
-                    // E. SPRINT 6: Reseteo de minería si el jugador se detiene
+                    // E. Reseteo de minería si el jugador se detiene
                     if (serverPlayer.tickCount % 5 == 0) {
                         CompoundTag data = serverPlayer.getPersistentData();
                         int lastMineTick = data.getInt("modrpg_last_mine_tick");
@@ -212,32 +242,19 @@ public class ModEvents {
 
                     // F. CICLO CADA SEGUNDO (20 Ticks): Maná, Estrés, Macro-Director, Incursiones y Limpiezas
                     if (serverPlayer.tickCount % 20 == 0) {
-                        // 1. Sincronización continua de maná
                         ModMessages.sendToPlayer(
                                 new PacketSyncMana(skills.getCurrentMana(), skills.getMaxMana()),
                                 serverPlayer
                         );
 
-                        // 2. Sprint 5: Telemetría de Estrés del Director
                         PlayerStressTracker.tick(serverPlayer);
-
-                        // 3. Sprint 6: Limpieza de huellas de audio expiradas
                         AudioFootprintTracker.cleanupExpiredPings(serverPlayer.tickCount);
-
-                        // 4. Sprint 7: Ciclo del Macro-Director de Pacing
                         MacroDirectorManager.tick(serverPlayer);
-
-                        // 5. Sprint 12: Evaluación de incursiones Némesis del día hardcore
                         NemesisHordeManager.tryTriggerNemesisRaid(serverPlayer.serverLevel(), serverPlayer);
-                    }
-
-                    // G. F.E.A.R. SPRINT 2: Tick del cerebro de escuadrones tácticos cada 5 ticks
-                    if (serverPlayer.tickCount % 5 == 0) {
-                        SquadCoordinator.tickSquads(serverPlayer.serverLevel());
                     }
                 }
 
-                // H. Feedback si se agota el maná por posturas sostenidas
+                // G. Feedback si se agota el maná por posturas sostenidas
                 if (skills.consumeTogglesForceDeactivated() && player instanceof ServerPlayer sp) {
                     sp.displayClientMessage(
                             Component.literal("§c§l⚡ ¡MANÁ AGOTADO! §7Tus posturas activas se han desactivado."),
@@ -255,7 +272,7 @@ public class ModEvents {
     }
 
     // =========================================================================
-    // 3. SPRINT 6: DETECCIÓN ACÚSTICA DE MINERÍA DE BLOQUES DUROS
+    // 5. DETECCIÓN ACÚSTICA DE MINERÍA DE BLOQUES DUROS
     // =========================================================================
 
     @SubscribeEvent
@@ -264,12 +281,10 @@ public class ModEvents {
             BlockPos pos = event.getPos();
             BlockState state = event.getLevel().getBlockState(pos);
 
-            // Bloques con dureza considerable (piedra, minerales, obsidiana)
             if (state.getDestroySpeed(event.getLevel(), pos) >= 1.5f) {
                 PlayerVulnerabilityDetector.recordMiningProgress(player);
                 player.getPersistentData().putInt("modrpg_last_mine_tick", player.tickCount);
 
-                // Emitir ping sonoro de minería cada 10 ticks de picado
                 if (player.tickCount % 10 == 0) {
                     AudioFootprintTracker.emitPing(player, AudioFootprintTracker.NoiseCategory.MINING);
                 }
@@ -278,7 +293,7 @@ public class ModEvents {
     }
 
     // =========================================================================
-    // 4. TICK DE ENTIDADES VIVAS: Esbirros, Decaimiento Elemental, Comandantes y Némesis
+    // 6. TICK DE ENTIDADES VIVAS: Esbirros, Decaimiento Elemental y Némesis
     // =========================================================================
 
     @SubscribeEvent
@@ -286,15 +301,12 @@ public class ModEvents {
         LivingEntity entity = event.getEntity();
         if (entity.level().isClientSide()) return;
 
-        // A. Esbirros invocados
         if (entity.getTags().contains(MinionHelper.TAG_MINION)) {
             MinionHelper.tickMinion(entity);
         }
 
-        // B. Decaimiento del cebado elemental
         ElementalReactionManager.tickPrimers(entity);
 
-        // C. Pulso de Aura del Comandante de Escuadrón cada segundo
         if (entity instanceof Monster monster && monster.getTags().contains("modrpg_affix_commander")) {
             if (monster.tickCount % 20 == 0) {
                 ServerLevel level = (ServerLevel) monster.level();
@@ -309,10 +321,9 @@ public class ModEvents {
             }
         }
 
-        // D. SPRINT 10: Presentación cinematográfica del Capitán Némesis al entrar en rango
         if (entity instanceof Monster monster && monster.getTags().contains("modrpg_nemesis_captain") && monster.isAlive()) {
             if (monster.tickCount % 20 == 0 && monster.getTarget() instanceof ServerPlayer player) {
-                if (monster.distanceToSqr(player) <= 256.0) { // Menos de 16 bloques
+                if (monster.distanceToSqr(player) <= 256.0) {
                     UUID captainId = monster.getPersistentData().getUUID("modrpg_nemesis_uuid");
                     var nemesisData = NemesisSavedData.get((ServerLevel) monster.level());
                     var captain = nemesisData.getCaptain(captainId);
@@ -325,7 +336,7 @@ public class ModEvents {
     }
 
     // =========================================================================
-    // 5. ATAQUE INICIAL: Fuego Amigo, I-Frames de Dash y Fuerza de Hierro
+    // 7. ATAQUE INICIAL: Fuego Amigo, I-Frames de Dash y Fuerza de Hierro
     // =========================================================================
 
     @SubscribeEvent
@@ -339,7 +350,6 @@ public class ModEvents {
         }
 
         if (victim instanceof ServerPlayer player) {
-            // Fuerza de Hierro
             if (player.getTags().contains(IronStrengthSkill.TAG_IRON_STRENGTH)) {
                 event.setCanceled(true);
                 player.heal(2.5f);
@@ -350,7 +360,6 @@ public class ModEvents {
                 return;
             }
 
-            // I-Frames del Dash
             player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
                 if (skills.hasDashIFrames()) {
                     event.setCanceled(true);
@@ -363,7 +372,7 @@ public class ModEvents {
     }
 
     // =========================================================================
-    // 6. CAÍDA FÍSICA: Salto con Impacto y Salto de Viento
+    // 8. CAÍDA FÍSICA: Salto con Impacto y Salto de Viento
     // =========================================================================
 
     @SubscribeEvent
@@ -410,7 +419,7 @@ public class ModEvents {
     }
 
     // =========================================================================
-    // 7. MUERTE DE ENTIDADES: Escuadrones, Némesis y Práctica Ponderada
+    // 9. MUERTE DE ENTIDADES: Escuadrones, Némesis y Práctica Ponderada
     // =========================================================================
 
     @SubscribeEvent
@@ -418,7 +427,6 @@ public class ModEvents {
         LivingEntity victim = event.getEntity();
         if (victim.level().isClientSide() || victim instanceof Player) return;
 
-        // F.E.A.R. SPRINT 2: Notificar muerte al coordinador (libera tokens y activa moral si era líder)
         if (victim instanceof Mob mob) {
             SquadCoordinator.onMobDeath(mob);
         }
@@ -448,7 +456,6 @@ public class ModEvents {
             player = sp;
         }
 
-        // SPRINT 10 & 12: Derrota y recompensas del Capitán Némesis
         if (victim instanceof Monster deadMonster && deadMonster.getTags().contains("modrpg_nemesis_captain")) {
             UUID captainId = deadMonster.getPersistentData().getUUID("modrpg_nemesis_uuid");
             var nemesisData = NemesisSavedData.get(level);
@@ -459,6 +466,8 @@ public class ModEvents {
                 NemesisDialogueHelper.triggerDeath(level, deadMonster, captain, player);
                 NemesisHordeManager.onNemesisKilled(level, deadMonster, player);
             }
+            // SPRINT 1 FIX: Purgar memoria estática de presentación para evitar fuga de UUID
+            NemesisDialogueHelper.clearNemesisMemory(deadMonster.getUUID());
         }
 
         if (player != null) {
@@ -512,7 +521,7 @@ public class ModEvents {
     }
 
     // =========================================================================
-    // 8. PROYECTILES DEL JUGADOR
+    // 10. PROYECTILES DEL JUGADOR
     // =========================================================================
 
     @SubscribeEvent
@@ -532,7 +541,7 @@ public class ModEvents {
     }
 
     // =========================================================================
-    // 9. CÁLCULO DE DAÑO: Afijos, Contramedidas Némesis, Parry y Reacciones
+    // 11. CÁLCULO DE DAÑO: Afijos, Contramedidas Némesis, Parry y Reacciones
     // =========================================================================
 
     @SubscribeEvent
@@ -540,9 +549,6 @@ public class ModEvents {
         Entity attacker = event.getSource().getEntity();
         Entity target = event.getEntity();
 
-        // ---------------------------------------------------------------------
-        // A. AFIJOS BÁSICOS DE CAMPEÓN
-        // ---------------------------------------------------------------------
         if (target instanceof Monster monster && monster.getTags().contains("modrpg_affix_runic_shield")) {
             if (event.getSource().getDirectEntity() instanceof Projectile projectile) {
                 Vec3 look = monster.getLookAngle();
@@ -578,14 +584,10 @@ public class ModEvents {
             }
         }
 
-        // ---------------------------------------------------------------------
-        // B. SPRINT 11: CONTRAMEDIDAS ADAPTATIVAS DEL CAPITÁN NÉMESIS
-        // ---------------------------------------------------------------------
         if (attacker instanceof Monster monster && monster.getTags().contains("modrpg_nemesis_captain") && target instanceof ServerPlayer victim) {
             String trait = monster.getPersistentData().getString("modrpg_nemesis_trait");
             ServerLevel level = (ServerLevel) victim.level();
 
-            // 1. Rasgo: HENDIDOR DE ESCUDOS
             if ("SHIELD_BREAKER".equals(trait) && victim.isBlocking()) {
                 victim.disableShield(true);
                 victim.stopUsingItem();
@@ -597,10 +599,9 @@ public class ModEvents {
                 victim.displayClientMessage(Component.literal("§4§l⚡ ¡ESCUDO DESTROZADO! §c(Desactivado por 5s)"), true);
             }
 
-            // 2. Rasgo: RED GRAVITATORIA (Anti-Air)
             if ("ANTI_AIR_GRAVITY".equals(trait)) {
                 victim.addTag("modrpg_grounded_tether");
-                victim.getPersistentData().putInt("modrpg_tether_timer", 120); // 6s de anclaje
+                victim.getPersistentData().putInt("modrpg_tether_timer", 120);
 
                 level.sendParticles(ParticleTypes.PORTAL, victim.getX(), victim.getY() + 0.2, victim.getZ(), 30, 0.4, 0.1, 0.4, 0.1);
                 level.playSound(null, victim.getX(), victim.getY(), victim.getZ(), SoundEvents.CHAIN_PLACE, SoundSource.HOSTILE, 1.4f, 0.7f);
@@ -608,7 +609,6 @@ public class ModEvents {
                 victim.displayClientMessage(Component.literal("§c⛓ ¡ANCLADO AL SUELO! §7(Movimiento vertical bloqueado por 6s)"), true);
             }
 
-            // 3. Rasgo: SILENCIADOR ARCANO (Mana Drainer)
             if ("MANA_DRAINER".equals(trait)) {
                 victim.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
                     skills.consumeMana(25.0f);
@@ -616,14 +616,13 @@ public class ModEvents {
                 });
 
                 if (monster.getPersistentData().contains("modrpg_primer_timer")) {
-                    monster.getPersistentData().putInt("modrpg_primer_timer", 20); // Solo 1s restante
+                    monster.getPersistentData().putInt("modrpg_primer_timer", 20);
                 }
 
                 victim.displayClientMessage(Component.literal("§5⚡ ¡DISIPACIÓN ARCANA! §7(-25 Maná / Cebados disipados)"), true);
             }
         }
 
-        // Flechas contra Némesis con Muro Cinético
         if (target instanceof Monster monster && monster.getTags().contains("modrpg_nemesis_captain")) {
             String trait = monster.getPersistentData().getString("modrpg_nemesis_trait");
             if ("PROJECTILE_DEFLECTOR".equals(trait) && event.getSource().getDirectEntity() instanceof AbstractArrow arrow) {
@@ -644,13 +643,9 @@ public class ModEvents {
             }
         }
 
-        // ---------------------------------------------------------------------
-        // C. SI EL JUGADOR ES EL AGRESOR
-        // ---------------------------------------------------------------------
         if (attacker instanceof ServerPlayer player && target instanceof LivingEntity livingTarget) {
             MinionHelper.redirectMinionsTarget(player, livingTarget, 16.0);
 
-            // SPRINT 9: Telemetría ofensiva para el Némesis
             if (event.getSource().getDirectEntity() instanceof AbstractArrow) {
                 PlayerCombatProfiler.recordRangedDamage(player, event.getAmount());
             } else if (event.getSource().is(DamageTypes.MAGIC) || event.getSource().is(DamageTypes.INDIRECT_MAGIC)) {
@@ -660,7 +655,6 @@ public class ModEvents {
                 PlayerCombatProfiler.recordMeleeDamage(player, event.getAmount());
             }
 
-            // D. INTERRUPCIÓN DE TELEGRAFIADO AMARILLO (ROMPE-POSTURA F.E.A.R.)
             if (livingTarget instanceof Mob mob && mob.getTags().contains(TacticalCasterGoal.TAG_INTERRUPTIBLE)) {
                 if (player.getAttackStrengthScale(0.5f) >= 0.85f) {
                     TacticalCasterGoal.interruptCaster(mob, player);
@@ -670,12 +664,10 @@ public class ModEvents {
                 }
             }
 
-            // E. DAÑO CRÍTICO POR POSTURA ROTA (+30% Daño)
             if (livingTarget.getTags().contains(TacticalCasterGoal.TAG_STAGGERED)) {
                 event.setAmount(event.getAmount() * 1.30f);
             }
 
-            // F. ROTURA DE HIELO POR FRAGILIDAD ABISAL (+50% Daño Físico)
             if (livingTarget.getTags().contains("modrpg_brittle_ice")) {
                 livingTarget.removeTag("modrpg_brittle_ice");
                 event.setAmount(event.getAmount() * 1.50f);
@@ -707,16 +699,11 @@ public class ModEvents {
             });
         }
 
-        // ---------------------------------------------------------------------
-        // D. SI EL JUGADOR ES LA VÍCTIMA
-        // ---------------------------------------------------------------------
         if (target instanceof ServerPlayer victim) {
-            // SPRINT 9: Telemetría de escudo
             if (victim.isBlocking()) {
                 PlayerCombatProfiler.recordShieldBlock(victim);
             }
 
-            // SPRINT 5: Impacto registrado en el medidor de estrés S(t)
             PlayerStressTracker.onPlayerDamaged(victim, event.getAmount());
 
             victim.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
@@ -739,19 +726,18 @@ public class ModEvents {
     }
 
     // =========================================================================
-    // 10. GENERACIÓN DE ENTIDADES: Inicialización Táctica y Supresión de Spam
+    // 12. GENERACIÓN DE ENTIDADES: Inicialización Táctica
     // =========================================================================
 
     @SubscribeEvent
     public static void onMonsterSpawn(EntityJoinLevelEvent event) {
         if (!event.getLevel().isClientSide() && event.getEntity() instanceof Monster monster) {
-            // SPRINT 12: Supresión de Mobs Vanilla si hay una incursión Némesis activa
             if (!monster.getTags().contains(NemesisHordeManager.TAG_NEMESIS_SQUAD)) {
                 AABB checkArea = monster.getBoundingBox().inflate(32.0);
                 List<ServerPlayer> nearbyPlayers = event.getLevel().getEntitiesOfClass(ServerPlayer.class, checkArea);
                 for (ServerPlayer sp : nearbyPlayers) {
                     if (NemesisHordeManager.isNemesisRaidActiveNear(sp)) {
-                        event.setCanceled(true); // Cancela el mob vanilla genérico para sostener 20 TPS y foco táctico
+                        event.setCanceled(true);
                         return;
                     }
                 }

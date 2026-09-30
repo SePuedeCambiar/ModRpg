@@ -32,7 +32,9 @@ public class PacketCastSkill {
     public static void handle(PacketCastSkill msg, Supplier<NetworkEvent.Context> ctx) {
         ctx.get().enqueueWork(() -> {
             ServerPlayer player = ctx.get().getSender();
-            if (player == null) return;
+
+            // SPRINT 1 FIX: Impedir que jugadores muertos o en modo espectador ejecuten habilidades
+            if (player == null || !player.isAlive() || player.isSpectator() || msg.skillId == null) return;
 
             player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
                 SkillNode node = SkillRegistry.get(msg.skillId);
@@ -71,8 +73,7 @@ public class PacketCastSkill {
                 node.onExecuteActive(player, skills);
 
                 // =========================================================================
-                // SPRINT 6: Emisión de Huella Acústica Arcana (24 metros)
-                // El estallido mágico delata la posición del jugador a monstruos acechadores
+                // Emisión de Huella Acústica Arcana (24 metros)
                 // =========================================================================
                 AudioFootprintTracker.emitPing(player, AudioFootprintTracker.NoiseCategory.SPELL_CAST);
 
