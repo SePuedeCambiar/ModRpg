@@ -7,12 +7,18 @@ import com.example.modrpg.ai.goals.director.AmbushAssaultGoal;
 import com.example.modrpg.ai.goals.director.StalkerLurkGoal;
 import com.example.modrpg.skills.PlayerSkillsProvider;
 import com.example.modrpg.skills.magic.modular.CraftedSpell;
+import com.example.modrpg.skills.nodes.magic.MinionHelper;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.entity.ai.goal.Goal;
+import net.minecraft.world.entity.ai.goal.MeleeAttackGoal;
+import net.minecraft.world.entity.ai.goal.RangedAttackGoal;
+import net.minecraft.world.entity.ai.goal.RangedBowAttackGoal;
+import net.minecraft.world.entity.ai.goal.RangedCrossbowAttackGoal;
 import net.minecraft.world.entity.monster.Monster;
 import net.minecraft.world.item.DyeableLeatherItem;
 import net.minecraft.world.item.ItemStack;
@@ -21,7 +27,6 @@ import net.minecraft.world.phys.AABB;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Administrador central de la IA hostil:
@@ -37,7 +42,11 @@ public class EnemyRpgManager {
     public static final String TAG_CASTER = "modrpg_enemy_caster";
 
     public static void tryInitializeMob(Monster mob) {
-        if (mob.getTags().contains(TAG_INITIALIZED)) return;
+        if (mob == null || mob.getTags().contains(TAG_INITIALIZED)) return;
+
+        // SPRINT 3 FIX (Bug C-06): Si la entidad es un esbirro aliado del jugador, ignorar por completo
+        if (mob.getTags().contains(MinionHelper.TAG_MINION)) return;
+
         mob.addTag(TAG_INITIALIZED);
 
         ServerLevel level = (ServerLevel) mob.level();
@@ -64,7 +73,7 @@ public class EnemyRpgManager {
         // 3. SELECCIÓN DE ARQUETIPO Y NIVEL DE HECHIZO
         // =========================================================================
         float casterChance = Math.min(0.65f, 0.20f + (power * 0.01f));
-        if (random.nextFloat() > casterChance) return;
+        if (random.nextFloat() > casterChance) return; // Mantiene el mob como vanilla estándar
 
         EnemyArchetype selectedArchetype = selectArchetypeForPower(candidates, power, random);
 
@@ -74,6 +83,9 @@ public class EnemyRpgManager {
 
         CraftedSpell spell = selectedArchetype.buildSpell(spellPowerLevel);
         mob.addTag(TAG_CASTER);
+
+        // SPRINT 3 FIX: Purgar metas vanilla de ataque para que no colisionen con las tácticas F.E.A.R.
+        purgeVanillaAttackGoals(mob);
 
         // =========================================================================
         // 4. EQUIPAMIENTO, TINTADO Y SILUETA VISUAL LEGIBLE
@@ -165,6 +177,18 @@ public class EnemyRpgManager {
         mob.goalSelector.addGoal(6, new TacticalCasterGoal(mob, selectedArchetype, spell));
     }
 
+    /**
+     * SPRINT 3 FIX: Elimina las metas vanilla de ataque para que no compitan con la IA F.E.A.R.
+     */
+    private static void purgeVanillaAttackGoals(Monster mob) {
+        mob.goalSelector.removeAllGoals(goal ->
+                goal instanceof MeleeAttackGoal
+                        || goal instanceof RangedBowAttackGoal
+                        || goal instanceof RangedAttackGoal
+                        || goal instanceof RangedCrossbowAttackGoal
+        );
+    }
+
     private static EnemyArchetype selectArchetypeForPower(List<EnemyArchetype> candidates, float power, RandomSource random) {
         if (candidates.contains(EnemyArchetype.CRYPT_NECROMANCER) && power >= 25.0f && random.nextFloat() < 0.5f) {
             return EnemyArchetype.CRYPT_NECROMANCER;
@@ -181,13 +205,13 @@ public class EnemyRpgManager {
 
         float playerPower = 0.0f;
         if (!nearbyPlayers.isEmpty()) {
-            AtomicInteger totalLevels = new AtomicInteger();
+            int[] totalLevels = new int[1]; // SPRINT 3 FIX: Evita instanciar AtomicInteger innecesario
             for (ServerPlayer player : nearbyPlayers) {
                 player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
-                    skills.getAllBranchLevels().values().forEach(totalLevels::addAndGet);
+                    skills.getAllBranchLevels().values().forEach(lvl -> totalLevels[0] += lvl);
                 });
             }
-            playerPower = (float) totalLevels.get() / nearbyPlayers.size() * 0.5f;
+            playerPower = (float) totalLevels[0] / nearbyPlayers.size() * 0.5f;
         }
 
         return dayPower + playerPower;

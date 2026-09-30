@@ -7,10 +7,14 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 public class CraftedSpell {
 
@@ -71,18 +75,49 @@ public class CraftedSpell {
                 level.addFreshEntity(proj);
             }
 
+            // =========================================================================
+            // SPRINT 3 FIX (Bug C-07): Raycast contra bloques sólidos
+            // El rayo ya no atraviesa paredes, montañas ni coberturas de escuadrones
+            // =========================================================================
             case BEAM -> {
-                Vec3 start = caster.getEyePosition();
-                for (int i = 1; i <= 16; i++) {
-                    Vec3 point = start.add(look.scale(i));
+                Vec3 eyePos = caster.getEyePosition();
+                double maxDistance = 16.0;
+                Vec3 endPos = eyePos.add(look.scale(maxDistance));
+
+                // 1. Comprobar colisión contra bloques del mundo
+                HitResult blockHit = level.clip(new ClipContext(
+                        eyePos, endPos,
+                        ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, caster
+                ));
+
+                double actualDistance = maxDistance;
+                if (blockHit.getType() == HitResult.Type.BLOCK) {
+                    actualDistance = eyePos.distanceTo(blockHit.getLocation());
+                    // Partículas de impacto en la pared
+                    level.sendParticles(element.getParticle(),
+                            blockHit.getLocation().x, blockHit.getLocation().y, blockHit.getLocation().z,
+                            12, 0.15, 0.15, 0.15, 0.05);
+                }
+
+                // 2. Trazar el haz visual y aplicar daño sin traspasar el punto de impacto
+                Set<LivingEntity> hitEnemies = new HashSet<>();
+                int steps = (int) Math.ceil(actualDistance);
+
+                for (int i = 1; i <= steps; i++) {
+                    double currentDist = Math.min((double) i, actualDistance);
+                    Vec3 point = eyePos.add(look.scale(currentDist));
                     level.sendParticles(element.getParticle(), point.x, point.y, point.z, 3, 0.1, 0.1, 0.1, 0.02);
 
-                    AABB box = new AABB(point.x - 0.8, point.y - 0.8, point.z - 0.8, point.x + 0.8, point.y + 0.8, point.z + 0.8);
+                    AABB box = new AABB(point.x - 0.7, point.y - 0.7, point.z - 0.7,
+                            point.x + 0.7, point.y + 0.7, point.z + 0.7);
+
                     List<LivingEntity> enemies = level.getEntitiesOfClass(
                             LivingEntity.class, box,
-                            e -> e != caster && e.isAlive() && !e.isAlliedTo(caster)
+                            e -> e != caster && e.isAlive() && !e.isAlliedTo(caster) && !hitEnemies.contains(e)
                     );
+
                     for (LivingEntity e : enemies) {
+                        hitEnemies.add(e);
                         e.hurt(magicSource, damage);
                         element.applyOnHitEffect(caster, e, damage);
                     }

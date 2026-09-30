@@ -12,20 +12,20 @@ import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.ai.goal.Goal;
-import net.minecraft.world.phys.Vec3;
 
 import java.util.EnumSet;
 
 /**
- * Maniobra de Vanguardia: Si un aliado frágil a distancia pide auxilio,
- * el tanque interrumpe su labor, reclama el PeelToken y embiste furiosamente
- * para interponerse físicamente entre el agresor y el aliado.
+ * Maniobra de Vanguardia (Peeling F.E.A.R.):
+ * Si un aliado frágil a distancia pide auxilio, un único tanque de vanguardia interrumpe
+ * su labor, adquiere el PeelToken de forma atómica y embiste para repeler la amenaza.
  */
 public class TacticalPeelGoal extends Goal {
 
     private final Mob mob;
     private final EnemyArchetype archetype;
     private int interceptTicks = 0;
+    private boolean hasInterrupted = false;
 
     public TacticalPeelGoal(Mob mob, EnemyArchetype archetype) {
         this.mob = mob;
@@ -35,30 +35,44 @@ public class TacticalPeelGoal extends Goal {
 
     @Override
     public boolean canUse() {
-        if (!archetype.isAggressiveRush()) return false;
+        // Solo tanques frontales libres pueden rescatar aliados
+        if (!archetype.isAggressiveRush() || mob.isPassenger()) return false;
+
+        // No actuar si está aturdido por rompe-postura
+        if (mob.getTags().contains("modrpg_staggered")) return false;
 
         SquadCoordinator.Squad squad = SquadCoordinator.getSquadFor(mob);
         if (squad == null || !squad.isPeelRequested()) return false;
 
         LivingEntity target = mob.getTarget();
-        return target != null && target.isAlive();
+        if (target == null || !target.isAlive()) return false;
+
+        // SPRINT 3 FIX (Bug M-01): Reclamar el token PEEL directamente en la evaluación.
+        // Si otro tanque del escuadrón ya lo adquirió, requestToken devolverá false y este mob mantendrá su puesto.
+        return squad.requestToken(mob, SquadTacticalToken.TokenType.PEEL, 80);
     }
 
     @Override
     public boolean canContinueToUse() {
+        // Si el rescate ya se completó o el tanque fue aturdido, finalizar
+        if (hasInterrupted || mob.getTags().contains("modrpg_staggered")) {
+            return false;
+        }
+
         SquadCoordinator.Squad squad = SquadCoordinator.getSquadFor(mob);
         LivingEntity target = mob.getTarget();
-        return squad != null && squad.isPeelRequested() && target != null && target.isAlive() && interceptTicks < 100;
+
+        return squad != null
+                && squad.isPeelRequested()
+                && target != null
+                && target.isAlive()
+                && interceptTicks < 100;
     }
 
     @Override
     public void start() {
         this.interceptTicks = 0;
-        SquadCoordinator.Squad squad = SquadCoordinator.getSquadFor(mob);
-        if (squad != null) {
-            // Reclamar el token de prioridad absoluta (100)
-            squad.requestToken(mob, SquadTacticalToken.TokenType.PEEL, 80);
-        }
+        this.hasInterrupted = false;
 
         if (mob.level() instanceof ServerLevel level) {
             SquadBarkManager.triggerBark(mob, SquadBarkManager.BarkType.VANGUARD_INTERCEPT, level);
@@ -68,6 +82,10 @@ public class TacticalPeelGoal extends Goal {
     @Override
     public void stop() {
         this.interceptTicks = 0;
+        this.hasInterrupted = false;
+        this.mob.getNavigation().stop();
+
+        // SPRINT 3 FIX: Liberar formalmente el token táctico al concluir o abortar la maniobra
         SquadCoordinator.Squad squad = SquadCoordinator.getSquadFor(mob);
         if (squad != null) {
             squad.releaseToken(mob, SquadTacticalToken.TokenType.PEEL);
@@ -77,17 +95,26 @@ public class TacticalPeelGoal extends Goal {
     @Override
     public void tick() {
         LivingEntity target = mob.getTarget();
-        if (target == null) return;
+        if (target == null || !target.isAlive()) {
+            this.hasInterrupted = true;
+            return;
+        }
 
         interceptTicks++;
         mob.getLookControl().setLookAt(target, 40.0f, 40.0f);
 
-        // Sprint forzado a velocidad x1.45
+        // Sprint táctico forzado a velocidad x1.45
         mob.getNavigation().moveTo(target, 1.45);
+
+        // Failsafe: Si lleva más de 3 segundos intentando llegar y la ruta está bloqueada por obstáculos
+        if (interceptTicks > 60 && !mob.getNavigation().isInProgress()) {
+            this.hasInterrupted = true;
+            return;
+        }
 
         double distSq = mob.distanceToSqr(target);
 
-        // Choque frontal violento contra el jugador
+        // Choque frontal violento contra el agresor
         if (distSq <= 6.0) {
             mob.swing(InteractionHand.MAIN_HAND, true);
             mob.doHurtTarget(target);
@@ -102,12 +129,14 @@ public class TacticalPeelGoal extends Goal {
                 level.playSound(null, mob.getX(), mob.getY(), mob.getZ(), SoundEvents.ANVIL_LAND, SoundSource.HOSTILE, 0.8f, 1.5f);
             }
 
-            // Rescate completado
+            // SPRINT 3 FIX: Desactivar la solicitud en el escuadrón para que ningún otro tanque re-embista
             SquadCoordinator.Squad squad = SquadCoordinator.getSquadFor(mob);
             if (squad != null) {
-                squad.releaseToken(mob, SquadTacticalToken.TokenType.PEEL);
+                squad.clearPeelRequest();
             }
-            this.stop();
+
+            // Marca la interrupción como concluida para que canContinueToUse() active stop() limpiamente
+            this.hasInterrupted = true;
         }
     }
 }

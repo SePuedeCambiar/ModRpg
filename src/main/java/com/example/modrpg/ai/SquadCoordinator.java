@@ -11,6 +11,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.level.Level;
@@ -22,16 +23,18 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
- * Cerebro Táctico Central del Escuadrón.
- * Unifica la concurrencia de tokens (F.E.A.R.), el grafo de coberturas espaciales
- * y la comunicación bidireccional con el Macro-Director de Pacing (Alien: Isolation).
+ * Cerebro Táctico Central del Escuadrón (Motor F.E.A.R.):
+ * - Control de concurrencia mediante tokens no destructivos con Lease Heartbeat.
+ * - Grafo espacial de coberturas dinámicas por escuadrón.
+ * - Señales de auxilio (Peeling) y ruptura de moral coordinadas.
+ * - Aislamiento dimensional y protección absoluta contra fugas de memoria.
  */
 public class SquadCoordinator {
 
     public static class Squad {
         public final UUID squadId = UUID.randomUUID();
         public UUID leaderUUID = null;
-        public ResourceKey<Level> dimension = null; // SPRINT 1: Aislamiento por dimensión
+        public ResourceKey<Level> dimension = null; // Aislamiento por dimensión
         public final Set<UUID> memberUUIDs = Collections.newSetFromMap(new ConcurrentHashMap<>());
 
         private final SquadCoverManager coverManager = new SquadCoverManager();
@@ -51,24 +54,24 @@ public class SquadCoordinator {
         }
 
         /**
-         * SPRINT 1 FIX: Reconstrucción no destructiva.
-         * Preserva los tokens que estén en uso activo (ACTIVE) para no desincronizar
+         * Reconstrucción no destructiva de la piscina de tokens.
+         * Preserva los tokens que estén en uso activo (ACTIVE) para no cancelar
          * a casters o tiradores que estén canalizando en ese instante.
          */
         public void rebuildTokenPool() {
             int desiredPrimaryCount = Math.max(1, memberUUIDs.size() / 3);
 
-            // 1. Asegurar token PEEL
+            // 1. Asegurar token PEEL (Rescate)
             if (tokenPool.stream().noneMatch(t -> t.getType() == SquadTacticalToken.TokenType.PEEL)) {
                 tokenPool.add(new SquadTacticalToken(SquadTacticalToken.TokenType.PEEL));
             }
 
-            // 2. Asegurar token SUPPRESSION
+            // 2. Asegurar token SUPPRESSION (Supresión)
             if (tokenPool.stream().noneMatch(t -> t.getType() == SquadTacticalToken.TokenType.SUPPRESSION)) {
                 tokenPool.add(new SquadTacticalToken(SquadTacticalToken.TokenType.SUPPRESSION));
             }
 
-            // 3. Ajustar tokens PRIMARY_ATTACK preservando los activos
+            // 3. Ajustar tokens PRIMARY_ATTACK preservando los que están activos
             long currentPrimaryCount = tokenPool.stream().filter(t -> t.getType() == SquadTacticalToken.TokenType.PRIMARY_ATTACK).count();
 
             if (currentPrimaryCount < desiredPrimaryCount) {
@@ -76,7 +79,6 @@ public class SquadCoordinator {
                     tokenPool.add(new SquadTacticalToken(SquadTacticalToken.TokenType.PRIMARY_ATTACK));
                 }
             } else if (currentPrimaryCount > desiredPrimaryCount) {
-                // Solo remover tokens primarios que estén IDLE
                 for (SquadTacticalToken token : tokenPool) {
                     if (token.getType() == SquadTacticalToken.TokenType.PRIMARY_ATTACK && token.isAvailable()) {
                         tokenPool.remove(token);
@@ -89,6 +91,15 @@ public class SquadCoordinator {
 
         public boolean isInPanic() {
             return moraleBreakTimer > 0;
+        }
+
+        public boolean isTokenAvailable(SquadTacticalToken.TokenType type) {
+            for (SquadTacticalToken token : tokenPool) {
+                if (token.getType() == type && token.isAvailable()) {
+                    return true;
+                }
+            }
+            return false;
         }
 
         public boolean requestToken(Mob mob, SquadTacticalToken.TokenType type, int leaseTicks) {
@@ -134,34 +145,46 @@ public class SquadCoordinator {
             return peelRequestedBy != null && peelTimer > 0;
         }
 
+        /**
+         * SPRINT 3 FIX: Da por concluida la alerta de auxilio en cuanto el tanque conecta
+         * el empuje sobre la amenaza, evitando que un segundo tanque re-embista en cadena.
+         */
+        public void clearPeelRequest() {
+            this.peelRequestedBy = null;
+            this.peelTimer = 0;
+        }
+
         public void tick(ServerLevel level) {
             if (peelTimer > 0) peelTimer--;
             else peelRequestedBy = null;
 
             if (moraleBreakTimer > 0) moraleBreakTimer--;
 
-            // 1. Recopilar miembros vivos válidos en este nivel
+            // 1. Recopilar miembros vivos y purgar entidades nulas/muertas que quedaron atrás
             List<Mob> aliveMembers = new ArrayList<>();
             LivingEntity sharedTarget = null;
 
             Iterator<UUID> it = memberUUIDs.iterator();
             while (it.hasNext()) {
                 UUID memberId = it.next();
-                if (level.getEntity(memberId) instanceof Mob mob) {
-                    if (mob.isAlive()) {
-                        aliveMembers.add(mob);
-                        if (sharedTarget == null && mob.getTarget() != null && mob.getTarget().isAlive()) {
-                            sharedTarget = mob.getTarget();
-                        }
-                    } else {
-                        // Mob muerto que no fue retirado: limpiar
-                        it.remove();
-                        MOB_SQUAD_MAP.remove(memberId);
+                Entity entity = level.getEntity(memberId);
+
+                if (entity instanceof Mob mob && mob.isAlive()) {
+                    aliveMembers.add(mob);
+                    if (sharedTarget == null && mob.getTarget() != null && mob.getTarget().isAlive()) {
+                        sharedTarget = mob.getTarget();
+                    }
+                } else {
+                    // Si el mob es nulo (chunk descargado/despawn) o murió sin avisar: purgar de inmediato
+                    it.remove();
+                    MOB_SQUAD_MAP.remove(memberId);
+                    if (Objects.equals(leaderUUID, memberId)) {
+                        leaderUUID = null;
                     }
                 }
             }
 
-            // 2. Tick de coberturas espaciales
+            // 2. Tick de coberturas espaciales del escuadrón
             coverManager.tick(level, sharedTarget, aliveMembers);
 
             // 3. Heartbeat de integridad de tokens
@@ -187,14 +210,16 @@ public class SquadCoordinator {
         }
 
         public void triggerMoraleBreak(ServerLevel level, Mob deadLeader) {
-            this.moraleBreakTimer = 60; // 3 segundos de pánico
+            this.moraleBreakTimer = 60; // 3 segundos de pánico inicial
 
+            // Liberar forzosamente todos los tokens tácticos
             for (SquadTacticalToken token : tokenPool) {
                 token.release();
             }
 
             SquadBarkManager.triggerBark(deadLeader, SquadBarkManager.BarkType.MORALE_BREAK, level);
 
+            // Conceder Respiro al jugador en el Director de Ritmo
             AABB searchPlayer = deadLeader.getBoundingBox().inflate(32.0);
             List<ServerPlayer> nearbyPlayers = level.getEntitiesOfClass(ServerPlayer.class, searchPlayer);
             for (ServerPlayer player : nearbyPlayers) {
@@ -205,6 +230,7 @@ public class SquadCoordinator {
                 );
             }
 
+            // Ralentización y debilidad a los supervivientes
             Vec3 deathPos = deadLeader.position();
             AABB area = new AABB(deathPos.x - 20, deathPos.y - 8, deathPos.z - 20, deathPos.x + 20, deathPos.y + 8, deathPos.z + 20);
             List<Mob> nearby = level.getEntitiesOfClass(Mob.class, area, m -> memberUUIDs.contains(m.getUUID()) && m.isAlive());
@@ -275,7 +301,7 @@ public class SquadCoordinator {
     }
 
     /**
-     * SPRINT 1 FIX: Despawn natural, descarga de chunk o salida del nivel (EntityLeaveLevelEvent).
+     * Despawn natural, descarga de chunk o salida del nivel (EntityLeaveLevelEvent).
      * Purga la entidad de memoria silenciosamente sin activar la fanfarria de "Líder Caído".
      */
     public static void onMobDespawnOrLeave(Mob mob) {
@@ -301,7 +327,7 @@ public class SquadCoordinator {
 
     /**
      * Tick maestro ejecutado desde ModEvents.onLevelTick exactamente 1 vez por tick de servidor.
-     * SPRINT 1 FIX: Aislamiento por dimensión y eliminación segura de escuadrones vacíos.
+     * Itera los escuadrones activos de forma aislada por dimensión y descarta los vacíos.
      */
     public static void tickSquads(ServerLevel level) {
         if (ACTIVE_SQUADS.isEmpty()) return;
