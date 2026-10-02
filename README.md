@@ -49,7 +49,7 @@ TAG_Compound {
 }
 ```
 
-### 2.2 Topes de Nivel por Especialización (Level Caps)
+### 2.2 Topes de Nivel por Especialización  (Level Caps)
 
 | Clasificación de Rama | Límite Máximo | Regla de Asignación |
 | :--- | :---: | :--- |
