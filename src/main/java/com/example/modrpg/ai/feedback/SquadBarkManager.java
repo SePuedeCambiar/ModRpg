@@ -5,6 +5,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
+import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.phys.AABB;
 
@@ -13,70 +14,113 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Motor de Radio-Táctica inspirado en F.E.A.R.
- * Transmite las intenciones del escuadrón al jugador mediante audio direccional,
- * avisos en Action Bar y modulación de tono acústico.
+ * Motor de Radio-Táctica F.E.A.R. (Enriquecido):
+ * Proyecta barks aleatorios y contextuales con audio direccional.
  */
 public class SquadBarkManager {
 
     public enum BarkType {
         FLANKING(
-                "§6[Escuadrón] §e¡Rodeando por el flanco!",
-                1.75f, // Pitch alto: silbato táctico
-                80     // 4 segundos de cooldown para evitar spam
+                new String[]{
+                        "§6[Escuadrón] §e¡Rodeando por el flanco!",
+                        "§6[Escuadrón] §e¡Buscando su punto ciego, no lo dejen girar!",
+                        "§6[Escuadrón] §e¡Me muevo por el lateral, cubran!",
+                        "§6[Escuadrón] §e¡Flanco despejado, cerrando ángulo!"
+                },
+                1.75f,
+                80
         ),
         SUPPRESSION_CALL(
-                "§c[Vanguardia] §f¡Fijen al blanco! ¡No lo dejen asomar!",
+                new String[]{
+                        "§c[Vanguardia] §f¡Fijen al blanco! ¡No lo dejen asomar!",
+                        "§c[Tirador] §f¡Fuego de contención! ¡Mantengan la cabeza abajo!",
+                        "§c[Tirador] §f¡Saturando su posición, avancen ahora!",
+                        "§c[Escuadrón] §f¡Que no respire! ¡Descarguen ráfagas!"
+                },
                 1.10f,
                 100
         ),
         PEEL_REQUEST(
-                "§d[Hechicero] §c¡Me tienen acorralado! ¡A mí!",
-                1.55f, // Alarido agudo de socorro
+                new String[]{
+                        "§d[Hechicero] §c¡Me tienen acorralado! ¡A mí!",
+                        "§d[Hechicero] §c¡El objetivo está encima mío! ¡Sáquenmelo!",
+                        "§d[Soporte] §c¡Auxilio en retaguardia! ¡Intervengan!",
+                        "§d[Hechicero] §c¡Rompió la distancia, auxilio!"
+                },
+                1.55f,
                 60
         ),
         VANGUARD_INTERCEPT(
-                "§6[Vanguardia] §4¡Atrás, insecto! ¡Enfócame a mí!",
-                0.80f, // Rugido grave intimidante
+                new String[]{
+                        "§6[Vanguardia] §4¡Atrás, insecto! ¡Enfócame a mí!",
+                        "§6[Vanguardia] §4¡No tocarás al taumaturgo! ¡A través de mí!",
+                        "§6[Vanguardia] §4¡Impacto de choque! ¡Retrocede!",
+                        "§6[Vanguardia] §4¡Línea frontal reforzada! ¡Atrás!"
+                },
+                0.80f,
                 70
         ),
         MORALE_BREAK(
-                "§4§l¡LÍDER CAÍDO! §7¡El escuadrón entra en pánico!",
-                0.60f, // Tono desafinado de derrota
+                new String[]{
+                        "§4§l¡LÍDER CAÍDO! §7¡El escuadrón entra en pánico!",
+                        "§4§l¡EL COMANDANTE CAYÓ! §7¡Rompan formación, dispersión!",
+                        "§4§l¡NOS ESTÁ MASACRANDO! §7¡Retrocedan a las sombras!",
+                        "§4§l¡LÍDER ELIMINADO! §7¡Cada uno por su cuenta!"
+                },
+                0.60f,
                 120
         ),
         SEARCHING(
-                "§7[Escuadrón] §8¿A dónde se fue? ¡Revisen las esquinas!",
+                new String[]{
+                        "§7[Escuadrón] §8¿A dónde se fue? ¡Revisen las esquinas!",
+                        "§7[Escuadrón] §8¡Perdimos visual! ¡Atentos al techo y sombras!",
+                        "§7[Escuadrón] §8El rastro se enfrió... Cuidado con emboscadas.",
+                        "§7[Escuadrón] §8¡Silencio! Huelo su magia cerca..."
+                },
                 0.95f,
                 90
+        ),
+        STAGGER_REACTION(
+                new String[]{
+                        "§e[Escuadrón] §c¡Le rompieron la postura al aliado! ¡Protéjanlo!",
+                        "§e[Escuadrón] §c¡Caster aturdido! ¡Cierren filas!",
+                        "§e[Escuadrón] §c¡Corte limpio del enemigo! ¡No lo dejen rematar!"
+                },
+                1.40f,
+                90
+        ),
+        CONTACT(
+                new String[]{
+                        "§c[Escuadrón] §e¡Contacto visual! ¡Inicien protocolo de asedio!",
+                        "§c[Escuadrón] §e¡Blanco localizado! ¡Abran fuego coordinado!",
+                        "§c[Escuadrón] §e¡Ahí está! ¡Que no llegue a cobertura!"
+                },
+                1.25f,
+                120
         );
 
-        private final String message;
+        private final String[] messages;
         private final float soundPitch;
         private final int cooldownTicks;
 
-        BarkType(String message, float soundPitch, int cooldownTicks) {
-            this.message = message;
+        BarkType(String[] messages, float soundPitch, int cooldownTicks) {
+            this.messages = messages;
             this.soundPitch = soundPitch;
             this.cooldownTicks = cooldownTicks;
         }
 
-        public String getMessage() { return message; }
+        public String getRandomMessage(RandomSource random) {
+            return messages[random.nextInt(messages.length)];
+        }
+
         public float getSoundPitch() { return soundPitch; }
         public int getCooldownTicks() { return cooldownTicks; }
     }
 
-    // Cooldown por entidad y tipo de bark: Map<MobUUID, Map<BarkType, GameTimeTick>>
     private static final Map<UUID, Map<BarkType, Long>> COOLDOWNS = new ConcurrentHashMap<>();
 
-    /**
-     * Emite una señal táctica audible y visible para todos los jugadores dentro de un radio de 18 bloques.
-     */
     public static void triggerBark(Mob emitter, BarkType type, ServerLevel level) {
         if (emitter == null || level.isClientSide()) return;
-
-        // SPRINT 1 FIX (Bug C-04): MORALE_BREAK ocurre cuando el líder ya murió (isAlive() == false).
-        // Debe permitirse para este bark y exigirse isAlive() para todos los demás.
         if (type != BarkType.MORALE_BREAK && !emitter.isAlive()) return;
 
         long currentTick = level.getGameTime();
@@ -87,12 +131,11 @@ public class SquadBarkManager {
 
         long lastTrigger = mobCooldowns.getOrDefault(type, -10000L);
         if (currentTick - lastTrigger < type.getCooldownTicks()) {
-            return; // Bloqueado por cooldown para evitar spam auditivo/textual
+            return;
         }
 
         mobCooldowns.put(type, currentTick);
 
-        // Failsafe anti-fugas: si el mapa supera las 150 entidades registradas, purgar las inactivas
         if (COOLDOWNS.size() > 150) {
             COOLDOWNS.entrySet().removeIf(entry -> {
                 Map<BarkType, Long> map = entry.getValue();
@@ -100,15 +143,17 @@ public class SquadBarkManager {
             });
         }
 
-        // 1. Proyectar sonido en el entorno según el tipo de acción
         playBarkSound(emitter, type, level);
 
-        // 2. Transmitir mensaje en Action Bar a los jugadores en rango táctico (18 bloques)
-        AABB audienceZone = emitter.getBoundingBox().inflate(18.0);
+        AABB audienceZone = emitter.getBoundingBox().inflate(20.0);
         var nearbyPlayers = level.getEntitiesOfClass(ServerPlayer.class, audienceZone);
 
+        // Mensaje aleatorio del pool
+        String chosenMessage = type.getRandomMessage(emitter.getRandom());
+
         for (ServerPlayer player : nearbyPlayers) {
-            player.displayClientMessage(Component.literal(type.getMessage()), true);
+            // Se envía a Action Bar con prioridad elegante
+            player.displayClientMessage(Component.literal(chosenMessage), true);
         }
     }
 
@@ -139,12 +184,15 @@ public class SquadBarkManager {
             case SEARCHING -> {
                 level.playSound(null, x, y, z, SoundEvents.VILLAGER_NO, SoundSource.HOSTILE, 0.8f, type.getSoundPitch());
             }
+            case STAGGER_REACTION -> {
+                level.playSound(null, x, y, z, SoundEvents.BLAZE_HURT, SoundSource.HOSTILE, 1.0f, type.getSoundPitch());
+            }
+            case CONTACT -> {
+                level.playSound(null, x, y, z, SoundEvents.CROSSBOW_LOADING_MIDDLE, SoundSource.HOSTILE, 1.2f, 1.5f);
+            }
         }
     }
 
-    /**
-     * SPRINT 1 FIX: Eliminación atómica y segura de memoria al morir o despawnear el mob.
-     */
     public static void clearMobMemory(UUID mobId) {
         if (mobId != null) {
             COOLDOWNS.remove(mobId);

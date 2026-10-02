@@ -34,13 +34,17 @@ public class StalkerLurkGoal extends Goal {
 
     @Override
     public boolean canUse() {
+        // Los tanques de asalto pesado no acechan en sombras; van directos a la pelea
+        if (archetype.isAggressiveRush() || mob.isPassenger()) {
+            return false;
+        }
+
         if (mob.getTarget() instanceof ServerPlayer player) {
             var pacing = MacroDirectorManager.getPacingData(player.getUUID());
             return pacing.getState() == DirectorState.BUILD_UP;
         }
         return false;
     }
-
     @Override
     public boolean canContinueToUse() {
         return canUse() || retreatTicks > 0;

@@ -1,9 +1,14 @@
 package com.example.modrpg.ai.director;
 
+import com.example.modrpg.skills.nodes.magic.MinionHelper;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.entity.monster.Monster;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.monster.Enemy;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
@@ -12,7 +17,11 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Gestor Maestro de Ritmo y Tensión (Inspirado en Alien: Isolation).
- * Itera una vez por segundo sobre los jugadores para orquestar el flujo de combate.
+ * SPRINT 4 FIX:
+ * - Waypoints de acecho (SHADOW_STALK) anclados a cavidades de aire reales en cuevas.
+ * - Punto de estrangulamiento (CUTOFF_CHOKE) proyectado a la boca real del túnel.
+ * - Reconocimiento de todas las amenazas hostiles del juego (Enemy.class).
+ * - Ruptura reactiva de la fase de Respiro ante agresiones sorpresivas.
  */
 public class MacroDirectorManager {
 
@@ -72,7 +81,8 @@ public class MacroDirectorManager {
         float stress = PlayerStressTracker.getStress(player);
         var vulnerabilities = PlayerVulnerabilityDetector.getActiveVulnerabilities(player);
 
-        int currentTick = player.tickCount;
+        // Sincronización temporal con el reloj del servidor
+        int currentTick = (int) (player.serverLevel().getGameTime() & 0x7FFFFFFF);
 
         // Limpieza de susurro expirado
         if (pacing.activeWhisper != null && pacing.activeWhisper.isExpired(currentTick)) {
@@ -87,6 +97,14 @@ public class MacroDirectorManager {
             // 1. FASE DE RESPIRO: El Director retiene las hordas
             case REPRIEVE -> {
                 pacing.stateTimer -= 20;
+
+                // SPRINT 4 FIX: Salida de emergencia si el jugador entra en combate durante la tregua
+                if (hasNearbyHostiles(player, 8.0) || stress >= 0.70f) {
+                    pacing.setState(DirectorState.CLIMAX, 0);
+                    pacing.climaxCombatTimer = 0;
+                    return;
+                }
+
                 if (pacing.stateTimer <= 0) {
                     pacing.setState(DirectorState.BUILD_UP, 0);
                 }
@@ -97,16 +115,14 @@ public class MacroDirectorManager {
                 // Comprobar si el jugador hizo ruido reciente
                 var ping = AudioFootprintTracker.findHeardPing(player.position(), 24.0);
                 if (ping != null) {
-                    // Pista acústica hacia el origen del sonido
                     pacing.setWhisper(new DirectorWhisper(
                             uuid, ping.position(), DirectorWhisper.WhisperType.INVESTIGATE_NOISE, currentTick
                     ));
                 } else if (pacing.activeWhisper == null) {
-                    // Pista de acecho hacia el punto ciego (12 bloques detrás del jugador)
-                    Vec3 look = player.getLookAngle();
-                    Vec3 behind = player.position().subtract(look.x * 12.0, 0, look.z * 12.0);
+                    // SPRINT 4 FIX: Waypoint en cavidad de aire real (no dentro de roca maciza)
+                    Vec3 stalkPos = calculateShadowStalkWaypoint(player);
                     pacing.setWhisper(new DirectorWhisper(
-                            uuid, behind, DirectorWhisper.WhisperType.SHADOW_STALK, currentTick
+                            uuid, stalkPos, DirectorWhisper.WhisperType.SHADOW_STALK, currentTick
                     ));
                 }
 
@@ -120,7 +136,7 @@ public class MacroDirectorManager {
             case AMBUSH_READY -> {
                 pacing.stateTimer -= 20;
 
-                // Si el jugador está encajonado en un túnel ciego, enviar waypoint a la entrada
+                // SPRINT 4 FIX: Bloquear la boca real del túnel, no los pies del jugador
                 if (vulnerabilities.contains(PlayerVulnerabilityDetector.VulnerabilityType.CORNERED_CHOKE)) {
                     Vec3 exitBlock = calculateChokeExit(player);
                     pacing.setWhisper(new DirectorWhisper(
@@ -141,8 +157,7 @@ public class MacroDirectorManager {
 
                 // Condición de Victoria: Si no quedan hostiles a 20 bloques tras 5 segundos de combate
                 if (!hasNearbyHostiles(player, 20.0) && pacing.climaxCombatTimer >= 100) {
-                    // El jugador sobrevivió a la emboscada: Garantizar 60 segundos de Respiro
-                    forceTriggerReprieve(uuid, 1200);
+                    forceTriggerReprieve(uuid, 1200); // 60 segundos de Respiro garantizados
                     return;
                 }
 
@@ -155,26 +170,123 @@ public class MacroDirectorManager {
     }
 
     /**
-     * Calcula la posición de la salida de un túnel ciego para que los enemigos bloqueen la puerta.
+     * SPRINT 4 FIX: Calcula un waypoint de acecho seguro en 3D.
+     * Busca aire transitable detrás del jugador. Si la espalda está pegada a una pared,
+     * proyecta a los flancos laterales en vez de dejar el waypoint dentro de la roca.
      */
-    private static Vec3 calculateChokeExit(ServerPlayer player) {
-        BlockPos feet = player.blockPosition();
-        for (Direction dir : Direction.Plane.HORIZONTAL) {
-            BlockPos check = feet.relative(dir);
-            // El lado que tenga aire es la única salida por donde puede escapar
-            if (player.level().getBlockState(check).isAir()) {
-                return new Vec3(check.getX() + 0.5, check.getY(), check.getZ() + 0.5);
+    private static Vec3 calculateShadowStalkWaypoint(ServerPlayer player) {
+        Level level = player.level();
+        Vec3 look = player.getLookAngle();
+        Vec3 horizontalLook = new Vec3(look.x, 0, look.z).normalize();
+        if (horizontalLook.lengthSqr() < 1e-4) {
+            horizontalLook = new Vec3(0, 0, 1);
+        }
+
+        BlockPos playerPos = player.blockPosition();
+
+        // 1. Probar distancias hacia atrás desde 12 hasta 4 bloques
+        for (int dist = 12; dist >= 4; dist -= 2) {
+            Vec3 behind = player.position().subtract(horizontalLook.scale(dist));
+            BlockPos targetPos = new BlockPos((int) Math.floor(behind.x), playerPos.getY(), (int) Math.floor(behind.z));
+
+            BlockPos safeFloor = findWalkableAirPocket(level, targetPos);
+            if (safeFloor != null) {
+                return new Vec3(safeFloor.getX() + 0.5, safeFloor.getY(), safeFloor.getZ() + 0.5);
             }
         }
+
+        // 2. Si la espalda está totalmente pegada a la pared de roca, probar en los flancos laterales (90°)
+        for (int side : new int[]{1, -1}) {
+            Vec3 perp = new Vec3(-horizontalLook.z * side, 0, horizontalLook.x * side).normalize();
+            Vec3 lateral = player.position().add(perp.scale(8.0));
+            BlockPos targetPos = new BlockPos((int) Math.floor(lateral.x), playerPos.getY(), (int) Math.floor(lateral.z));
+
+            BlockPos safeFloor = findWalkableAirPocket(level, targetPos);
+            if (safeFloor != null) {
+                return new Vec3(safeFloor.getX() + 0.5, safeFloor.getY(), safeFloor.getZ() + 0.5);
+            }
+        }
+
         return player.position();
     }
 
+    /**
+     * SPRINT 4 FIX: Proyecta a lo largo del túnel ciego hacia afuera (hasta 14 bloques)
+     * buscando la boca de la cueva o la habitación abierta para colocar la barricada.
+     */
+    private static Vec3 calculateChokeExit(ServerPlayer player) {
+        Level level = player.level();
+        BlockPos feet = player.blockPosition();
+
+        Direction exitDir = null;
+        for (Direction dir : Direction.Plane.HORIZONTAL) {
+            BlockPos checkFeet = feet.relative(dir);
+            BlockPos checkHead = checkFeet.above();
+            if (!level.getBlockState(checkFeet).blocksMotion() && !level.getBlockState(checkHead).blocksMotion()) {
+                exitDir = dir;
+                break;
+            }
+        }
+
+        // Si encontramos la dirección por donde sale el túnel, proyectar hacia la boca exterior
+        if (exitDir != null) {
+            BlockPos lastValid = feet.relative(exitDir);
+
+            for (int i = 1; i <= 14; i++) {
+                BlockPos nextFeet = feet.relative(exitDir, i);
+                BlockPos nextHead = nextFeet.above();
+                BlockPos nextFloor = nextFeet.below();
+
+                // Si el túnel sigue abierto y transitable
+                if (!level.getBlockState(nextFeet).blocksMotion()
+                        && !level.getBlockState(nextHead).blocksMotion()
+                        && level.getBlockState(nextFloor).blocksMotion()) {
+
+                    lastValid = nextFeet;
+
+                    // Si encontramos una apertura lateral amplia, es la entrada real del túnel
+                    Direction left = exitDir.getClockWise();
+                    Direction right = exitDir.getCounterClockWise();
+                    if (!level.getBlockState(nextFeet.relative(left)).blocksMotion()
+                            || !level.getBlockState(nextFeet.relative(right)).blocksMotion()) {
+                        return new Vec3(nextFeet.getX() + 0.5, nextFeet.getY(), nextFeet.getZ() + 0.5);
+                    }
+                } else {
+                    break;
+                }
+            }
+
+            return new Vec3(lastValid.getX() + 0.5, lastValid.getY(), lastValid.getZ() + 0.5);
+        }
+
+        return player.position();
+    }
+
+    private static BlockPos findWalkableAirPocket(Level level, BlockPos origin) {
+        for (int dy = 3; dy >= -3; dy--) {
+            BlockPos check = origin.above(dy);
+            BlockState feet = level.getBlockState(check);
+            BlockState head = level.getBlockState(check.above());
+            BlockState floor = level.getBlockState(check.below());
+
+            if (feet.isAir() && head.isAir() && floor.blocksMotion()
+                    && !floor.is(Blocks.LAVA) && !floor.is(Blocks.FIRE)) {
+                return check;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * SPRINT 4 FIX: Consulta usando Enemy.class para incluir Slimes, Ghasts, Phantoms y Magma Cubes.
+     */
     private static boolean hasNearbyHostiles(ServerPlayer player, double radius) {
         AABB box = player.getBoundingBox().inflate(radius);
-        List<Monster> monsters = player.serverLevel().getEntitiesOfClass(
-                Monster.class, box, Monster::isAlive
+        List<LivingEntity> enemies = player.serverLevel().getEntitiesOfClass(
+                LivingEntity.class, box,
+                e -> e instanceof Enemy && e.isAlive() && !MinionHelper.areAllies(player, e)
         );
-        return !monsters.isEmpty();
+        return !enemies.isEmpty();
     }
 
     public static void clearPlayer(UUID playerUUID) {

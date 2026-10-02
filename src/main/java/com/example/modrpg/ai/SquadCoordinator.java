@@ -4,6 +4,7 @@ import com.example.modrpg.ai.director.MacroDirectorManager;
 import com.example.modrpg.ai.feedback.SquadBarkManager;
 import com.example.modrpg.ai.squad.SquadCoverManager;
 import com.example.modrpg.ai.squad.SquadTacticalToken;
+import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
@@ -11,10 +12,11 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
-import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
@@ -23,18 +25,17 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
- * Cerebro Táctico Central del Escuadrón (Motor F.E.A.R.):
- * - Control de concurrencia mediante tokens no destructivos con Lease Heartbeat.
- * - Grafo espacial de coberturas dinámicas por escuadrón.
- * - Señales de auxilio (Peeling) y ruptura de moral coordinadas.
- * - Aislamiento dimensional y protección absoluta contra fugas de memoria.
+ * Cerebro Táctico Central del Escuadrón (F.E.A.R.):
+ * - Sprint 1: Fugas por despawn natural y aislamiento por dimensión.
+ * - Sprint 3: Preservación de tokens activos y limpieza atómica de emergencias (clearPeelRequest).
+ * - Sprint 4: Flanqueo 3D con Ground Snapping para montañas, cuevas y desniveles.
  */
 public class SquadCoordinator {
 
     public static class Squad {
         public final UUID squadId = UUID.randomUUID();
         public UUID leaderUUID = null;
-        public ResourceKey<Level> dimension = null; // Aislamiento por dimensión
+        public ResourceKey<Level> dimension = null;
         public final Set<UUID> memberUUIDs = Collections.newSetFromMap(new ConcurrentHashMap<>());
 
         private final SquadCoverManager coverManager = new SquadCoverManager();
@@ -54,24 +55,22 @@ public class SquadCoordinator {
         }
 
         /**
-         * Reconstrucción no destructiva de la piscina de tokens.
-         * Preserva los tokens que estén en uso activo (ACTIVE) para no cancelar
-         * a casters o tiradores que estén canalizando en ese instante.
+         * Reconstrucción no destructiva de tokens: preserva los que estén en uso activo (ACTIVE).
          */
         public void rebuildTokenPool() {
             int desiredPrimaryCount = Math.max(1, memberUUIDs.size() / 3);
 
-            // 1. Asegurar token PEEL (Rescate)
+            // 1. Asegurar token PEEL
             if (tokenPool.stream().noneMatch(t -> t.getType() == SquadTacticalToken.TokenType.PEEL)) {
                 tokenPool.add(new SquadTacticalToken(SquadTacticalToken.TokenType.PEEL));
             }
 
-            // 2. Asegurar token SUPPRESSION (Supresión)
+            // 2. Asegurar token SUPPRESSION
             if (tokenPool.stream().noneMatch(t -> t.getType() == SquadTacticalToken.TokenType.SUPPRESSION)) {
                 tokenPool.add(new SquadTacticalToken(SquadTacticalToken.TokenType.SUPPRESSION));
             }
 
-            // 3. Ajustar tokens PRIMARY_ATTACK preservando los que están activos
+            // 3. Ajustar tokens PRIMARY_ATTACK preservando los activos
             long currentPrimaryCount = tokenPool.stream().filter(t -> t.getType() == SquadTacticalToken.TokenType.PRIMARY_ATTACK).count();
 
             if (currentPrimaryCount < desiredPrimaryCount) {
@@ -91,15 +90,6 @@ public class SquadCoordinator {
 
         public boolean isInPanic() {
             return moraleBreakTimer > 0;
-        }
-
-        public boolean isTokenAvailable(SquadTacticalToken.TokenType type) {
-            for (SquadTacticalToken token : tokenPool) {
-                if (token.getType() == type && token.isAvailable()) {
-                    return true;
-                }
-            }
-            return false;
         }
 
         public boolean requestToken(Mob mob, SquadTacticalToken.TokenType type, int leaseTicks) {
@@ -137,21 +127,21 @@ public class SquadCoordinator {
         }
 
         public void requestPeel(Mob caller, LivingEntity threat) {
+            if (caller == null || !caller.isAlive()) return;
             this.peelRequestedBy = caller.getUUID();
-            this.peelTimer = 60; // 3 segundos (a 1 decremento por tick)
-        }
-
-        public boolean isPeelRequested() {
-            return peelRequestedBy != null && peelTimer > 0;
+            this.peelTimer = 60; // 3 segundos de ventana de intercepción
         }
 
         /**
-         * SPRINT 3 FIX: Da por concluida la alerta de auxilio en cuanto el tanque conecta
-         * el empuje sobre la amenaza, evitando que un segundo tanque re-embista en cadena.
+         * SPRINT 3 FIX: Da por concluida la alerta de rescate para evitar que múltiples tanques re-embistan.
          */
         public void clearPeelRequest() {
             this.peelRequestedBy = null;
             this.peelTimer = 0;
+        }
+
+        public boolean isPeelRequested() {
+            return peelRequestedBy != null && peelTimer > 0;
         }
 
         public void tick(ServerLevel level) {
@@ -160,31 +150,27 @@ public class SquadCoordinator {
 
             if (moraleBreakTimer > 0) moraleBreakTimer--;
 
-            // 1. Recopilar miembros vivos y purgar entidades nulas/muertas que quedaron atrás
+            // 1. Recopilar miembros vivos válidos y limpiar referencias muertas
             List<Mob> aliveMembers = new ArrayList<>();
             LivingEntity sharedTarget = null;
 
             Iterator<UUID> it = memberUUIDs.iterator();
             while (it.hasNext()) {
                 UUID memberId = it.next();
-                Entity entity = level.getEntity(memberId);
-
-                if (entity instanceof Mob mob && mob.isAlive()) {
-                    aliveMembers.add(mob);
-                    if (sharedTarget == null && mob.getTarget() != null && mob.getTarget().isAlive()) {
-                        sharedTarget = mob.getTarget();
-                    }
-                } else {
-                    // Si el mob es nulo (chunk descargado/despawn) o murió sin avisar: purgar de inmediato
-                    it.remove();
-                    MOB_SQUAD_MAP.remove(memberId);
-                    if (Objects.equals(leaderUUID, memberId)) {
-                        leaderUUID = null;
+                if (level.getEntity(memberId) instanceof Mob mob) {
+                    if (mob.isAlive()) {
+                        aliveMembers.add(mob);
+                        if (sharedTarget == null && mob.getTarget() != null && mob.getTarget().isAlive()) {
+                            sharedTarget = mob.getTarget();
+                        }
+                    } else {
+                        it.remove();
+                        MOB_SQUAD_MAP.remove(memberId);
                     }
                 }
             }
 
-            // 2. Tick de coberturas espaciales del escuadrón
+            // 2. Tick de coberturas espaciales
             coverManager.tick(level, sharedTarget, aliveMembers);
 
             // 3. Heartbeat de integridad de tokens
@@ -196,30 +182,84 @@ public class SquadCoordinator {
             }
         }
 
+        /**
+         * SPRINT 4 FIX: Flanqueo 3D anclado al suelo real (Ground Snapping).
+         * - Usa el vector de mirada del objetivo para buscar el punto ciego real (> 75°).
+         * - Escanea verticalmente en la columna de destino para no incrustar al mob en roca ni dejarlo en el aire.
+         * - Si la posición es inaccesible o cae en lava/precipicio, devuelve null limpiamente.
+         */
         public Vec3 getFlankingPosition(Mob mob, LivingEntity target) {
+            if (mob == null || target == null || !mob.isAlive() || !target.isAlive()) {
+                return null;
+            }
+
+            Level level = mob.level();
             Vec3 targetPos = target.position();
-            Vec3 mobPos = mob.position();
+            Vec3 targetLook = target.getLookAngle();
 
-            Vec3 forward = targetPos.subtract(mobPos).normalize();
-            if (forward.lengthSqr() < 1e-4) return null;
+            // 1. Vector horizontal de mirada del objetivo (Jugador)
+            Vec3 lookHorizontal = new Vec3(targetLook.x, 0, targetLook.z).normalize();
+            if (lookHorizontal.lengthSqr() < 1e-4) {
+                lookHorizontal = new Vec3(0, 0, 1);
+            }
 
+            // 2. Determinar flanco izquierdo o derecho según el mob para rodearlo por ambos lados
             int side = (mob.hashCode() % 2 == 0) ? 1 : -1;
-            Vec3 perpendicular = new Vec3(-forward.z * side, 0, forward.x * side).normalize();
+            Vec3 perpendicular = new Vec3(-lookHorizontal.z * side, 0, lookHorizontal.x * side).normalize();
 
-            return targetPos.subtract(forward.scale(10.0)).add(perpendicular.scale(6.0));
+            // 3. Proyectar hacia el cuadrante trasero-lateral (5m hacia atrás, 6.5m hacia el costado)
+            Vec3 idealFlankPos = targetPos
+                    .subtract(lookHorizontal.scale(5.0))
+                    .add(perpendicular.scale(6.5));
+
+            int targetX = (int) Math.floor(idealFlankPos.x);
+            int targetZ = (int) Math.floor(idealFlankPos.z);
+            int anchorY = (int) Math.floor(targetPos.y);
+
+            // 4. Buscar suelo transitable seguro dentro de +- 4 bloques verticales del jugador
+            BlockPos safeFloorPos = findSafeFlankFloor(level, targetX, anchorY, targetZ);
+            if (safeFloorPos != null) {
+                return new Vec3(safeFloorPos.getX() + 0.5, safeFloorPos.getY(), safeFloorPos.getZ() + 0.5);
+            }
+
+            // Si está dentro de la montaña o en un abismo, retornar null para no forzar ruta contra la pared
+            return null;
+        }
+
+        private static BlockPos findSafeFlankFloor(Level level, int x, int anchorY, int z) {
+            for (int dy = 4; dy >= -4; dy--) {
+                BlockPos pos = new BlockPos(x, anchorY + dy, z);
+                if (isSafeStandPosition(level, pos)) {
+                    return pos;
+                }
+            }
+            return null;
+        }
+
+        private static boolean isSafeStandPosition(Level level, BlockPos pos) {
+            BlockState feet = level.getBlockState(pos);
+            BlockState head = level.getBlockState(pos.above());
+            BlockState floor = level.getBlockState(pos.below());
+
+            if (!feet.isAir() || !head.isAir()) {
+                return false;
+            }
+
+            return floor.blocksMotion()
+                    && !floor.is(Blocks.LAVA)
+                    && !floor.is(Blocks.FIRE)
+                    && !floor.is(Blocks.MAGMA_BLOCK);
         }
 
         public void triggerMoraleBreak(ServerLevel level, Mob deadLeader) {
-            this.moraleBreakTimer = 60; // 3 segundos de pánico inicial
+            this.moraleBreakTimer = 60; // 3 segundos de pánico
 
-            // Liberar forzosamente todos los tokens tácticos
             for (SquadTacticalToken token : tokenPool) {
                 token.release();
             }
 
             SquadBarkManager.triggerBark(deadLeader, SquadBarkManager.BarkType.MORALE_BREAK, level);
 
-            // Conceder Respiro al jugador en el Director de Ritmo
             AABB searchPlayer = deadLeader.getBoundingBox().inflate(32.0);
             List<ServerPlayer> nearbyPlayers = level.getEntitiesOfClass(ServerPlayer.class, searchPlayer);
             for (ServerPlayer player : nearbyPlayers) {
@@ -230,7 +270,6 @@ public class SquadCoordinator {
                 );
             }
 
-            // Ralentización y debilidad a los supervivientes
             Vec3 deathPos = deadLeader.position();
             AABB area = new AABB(deathPos.x - 20, deathPos.y - 8, deathPos.z - 20, deathPos.x + 20, deathPos.y + 8, deathPos.z + 20);
             List<Mob> nearby = level.getEntitiesOfClass(Mob.class, area, m -> memberUUIDs.contains(m.getUUID()) && m.isAlive());
@@ -274,7 +313,6 @@ public class SquadCoordinator {
 
     /**
      * Muerte confirmada en combate (LivingDeathEvent).
-     * Si era el líder, desata la ruptura de moral y pánico en el escuadrón.
      */
     public static void onMobDeath(Mob deadMob) {
         if (deadMob == null) return;
@@ -301,8 +339,7 @@ public class SquadCoordinator {
     }
 
     /**
-     * Despawn natural, descarga de chunk o salida del nivel (EntityLeaveLevelEvent).
-     * Purga la entidad de memoria silenciosamente sin activar la fanfarria de "Líder Caído".
+     * Despawn natural o salida de nivel sin muerte (EntityLeaveLevelEvent).
      */
     public static void onMobDespawnOrLeave(Mob mob) {
         if (mob == null) return;
@@ -327,7 +364,6 @@ public class SquadCoordinator {
 
     /**
      * Tick maestro ejecutado desde ModEvents.onLevelTick exactamente 1 vez por tick de servidor.
-     * Itera los escuadrones activos de forma aislada por dimensión y descarta los vacíos.
      */
     public static void tickSquads(ServerLevel level) {
         if (ACTIVE_SQUADS.isEmpty()) return;
@@ -336,13 +372,11 @@ public class SquadCoordinator {
         while (it.hasNext()) {
             Squad squad = it.next().getValue();
 
-            // Descartar escuadrones que quedaron vacíos
             if (squad.memberUUIDs.isEmpty()) {
                 it.remove();
                 continue;
             }
 
-            // Filtrar solo los escuadrones que correspondan a la dimensión actual
             if (squad.dimension == null || squad.dimension.equals(level.dimension())) {
                 squad.tick(level);
             }

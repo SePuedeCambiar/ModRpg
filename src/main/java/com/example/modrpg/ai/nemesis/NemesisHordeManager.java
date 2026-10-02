@@ -3,6 +3,8 @@ package com.example.modrpg.ai.nemesis;
 import com.example.modrpg.ai.EnemyArchetype;
 import com.example.modrpg.ai.EnemyRpgManager;
 import com.example.modrpg.ai.SquadCoordinator;
+import com.example.modrpg.ai.director.DirectorState;
+import com.example.modrpg.ai.director.MacroDirectorManager;
 import com.example.modrpg.skills.PlayerSkillsProvider;
 import com.example.modrpg.skills.SkillEconomy;
 import com.example.modrpg.skills.data.SkillRegistry;
@@ -16,10 +18,13 @@ import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.monster.Monster;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
@@ -29,7 +34,9 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Orquesta la economía de hordas en el mundo Hardcore de 100 días.
- * Asegura combates quirúrgicos de 3 a 10 enemigos y asigna capitanes con rencor.
+ * - SPRINT 1: Aislamiento por dimensión y limpieza de memoria en desconexión.
+ * - SPRINT 4: Generación volumétrica 3D adaptada a Cuevas y Nether.
+ * - SPRINT 4 FIX: Asignación inmediata de Target, rango de seguimiento de 48m y activación del combate.
  */
 public class NemesisHordeManager {
 
@@ -38,18 +45,12 @@ public class NemesisHordeManager {
     // Registra el último tick en el que se lanzó una incursión a cada jugador (cooldown de 2 a 3 días)
     private static final Map<UUID, Long> LAST_RAID_TICK = new ConcurrentHashMap<>();
 
-    /**
-     * SPRINT 1 FIX: Evita fugas de memoria purgando los datos de cooldown cuando el jugador sale del servidor.
-     */
     public static void clearPlayer(UUID playerUUID) {
         if (playerUUID != null) {
             LAST_RAID_TICK.remove(playerUUID);
         }
     }
 
-    /**
-     * Comprueba si hay una incursión Némesis activa combatiendo cerca del jugador.
-     */
     public static boolean isNemesisRaidActiveNear(ServerPlayer player) {
         if (player == null || player.level().isClientSide()) return false;
 
@@ -60,9 +61,6 @@ public class NemesisHordeManager {
         return !activeNemesisMobs.isEmpty();
     }
 
-    /**
-     * Evalúa y despliega una incursión táctica si las condiciones del Director y del mundo se cumplen.
-     */
     public static void tryTriggerNemesisRaid(ServerLevel level, ServerPlayer player) {
         if (level == null || player == null || !player.isAlive() || isNemesisRaidActiveNear(player)) return;
 
@@ -79,27 +77,21 @@ public class NemesisHordeManager {
     }
 
     /**
-     * Genera la escuadra táctica de tamaño controlado en un punto ciego exterior.
+     * Genera la escuadra táctica de tamaño controlado en un punto ciego exterior o subterráneo.
      */
     public static void spawnTacticalHorde(ServerLevel level, ServerPlayer player) {
         int hordeSize = HordeComposition.calculateHordeSize(level.getDayTime());
         List<EnemyArchetype> archetypes = HordeComposition.buildSquadArchetypes(hordeSize);
         RandomSource random = player.getRandom();
 
-        // 1. Calcular posición de spawn táctica fuera del campo de visión (a 30-34 bloques)
-        float spawnAngle = player.getYRot() + 130.0f + random.nextFloat() * 100.0f; // Detrás o en ángulo ciego
-        double radians = Math.toRadians(spawnAngle);
-        double spawnDist = 30.0 + random.nextDouble() * 4.0;
+        // 1. Localizar un punto ancla seguro en el entorno 3D real del jugador
+        BlockPos anchorGroundPos = findSafeHordeSpawnPosition(level, player, random);
+        if (anchorGroundPos == null) {
+            LAST_RAID_TICK.put(player.getUUID(), level.getGameTime() - 42000L);
+            return;
+        }
 
-        int targetX = (int) (player.getX() - Math.sin(radians) * spawnDist);
-        int targetZ = (int) (player.getZ() + Math.cos(radians) * spawnDist);
-        BlockPos groundPos = level.getHeightmapPos(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, new BlockPos(targetX, 0, targetZ));
-
-        // 2. Fundar el escuadrón táctico
-        SquadCoordinator.Squad squad = new SquadCoordinator.Squad();
-        squad.dimension = level.dimension(); // SPRINT 1: Asignar dimensión al fundar escuadrón
-
-        // 3. Obtener o generar al Capitán Némesis
+        // 2. Obtener o generar los datos del Capitán Némesis
         long day = level.getDayTime() / 24000L;
         NemesisCaptain captain = null;
         var nemesisData = NemesisSavedData.get(level);
@@ -124,39 +116,154 @@ public class NemesisHordeManager {
             }
         }
 
-        // 4. Instanciar los miembros de la escuadra
+        SquadCoordinator.Squad unifiedSquad = null;
+
+        // 3. Instanciar los miembros de la escuadra
         for (int i = 0; i < hordeSize; i++) {
             EnemyArchetype archetype = archetypes.get(i);
             Monster mob = createMobForArchetype(level, archetype);
             if (mob == null) continue;
 
+            // Offset horizontal disperso
             double offsetX = (random.nextDouble() - 0.5) * 4.0;
             double offsetZ = (random.nextDouble() - 0.5) * 4.0;
-            mob.moveTo(groundPos.getX() + offsetX, groundPos.getY(), groundPos.getZ() + offsetZ, random.nextFloat() * 360.0f, 0.0f);
+            int mobX = (int) Math.round(anchorGroundPos.getX() + offsetX);
+            int mobZ = (int) Math.round(anchorGroundPos.getZ() + offsetZ);
 
-            mob.addTag(TAG_NEMESIS_SQUAD);
-            EnemyRpgManager.tryInitializeMob(mob);
-
-            if (i == 0 && captain != null) {
-                promoteToNemesisCaptain(mob, captain);
-                squad.leaderUUID = mob.getUUID();
+            BlockPos mobSpawnPos = findLocalGround(level, mobX, anchorGroundPos.getY(), mobZ);
+            if (mobSpawnPos == null) {
+                mobSpawnPos = anchorGroundPos;
             }
 
-            squad.memberUUIDs.add(mob.getUUID());
-            level.addFreshEntity(mob);
+            mob.moveTo(mobSpawnPos.getX() + 0.5, mobSpawnPos.getY(), mobSpawnPos.getZ() + 0.5,
+                    random.nextFloat() * 360.0f, 0.0f);
+
+            // SPRINT 4 FIX: Ampliar visión a 48 bloques para que detecten al jugador desde la distancia de spawn
+            var followAttr = mob.getAttribute(Attributes.FOLLOW_RANGE);
+            if (followAttr != null && followAttr.getBaseValue() < 48.0) {
+                followAttr.setBaseValue(48.0);
+            }
+
+            // Asignar al jugador como objetivo hostil de inmediato
+            mob.setTarget(player);
+
+            mob.addTag(TAG_NEMESIS_SQUAD);
+            level.addFreshEntity(mob); // Añadir al nivel antes de inicializar para que la detección de escuadrón funcione
+
+            EnemyRpgManager.tryInitializeMob(mob);
+
+            // Recuperar el escuadrón unificado creado en SquadCoordinator
+            if (unifiedSquad == null) {
+                unifiedSquad = SquadCoordinator.getSquadFor(mob);
+            }
+
+            // Si es el primer miembro y hay capitán disponible: promover a Capitán Némesis
+            if (i == 0 && captain != null) {
+                promoteToNemesisCaptain(mob, captain);
+                if (unifiedSquad != null) {
+                    unifiedSquad.leaderUUID = mob.getUUID();
+                }
+            }
 
             level.sendParticles(ParticleTypes.SMOKE, mob.getX(), mob.getY() + 0.5, mob.getZ(), 10, 0.3, 0.3, 0.3, 0.02);
         }
 
-        squad.rebuildTokenPool();
+        // 4. Asegurar la bolsa de tokens del escuadrón
+        if (unifiedSquad != null) {
+            unifiedSquad.rebuildTokenPool();
+        }
+
+        // SPRINT 4 FIX: Activar al Director en modo Emboscada de inmediato para que coordinen el ataque
+        MacroDirectorManager.getPacingData(player.getUUID()).setState(DirectorState.AMBUSH_READY, 40);
 
         // 5. Señal de audio ominosa al iniciar la incursión
-        level.playSound(null, groundPos.getX(), groundPos.getY(), groundPos.getZ(),
+        level.playSound(null, anchorGroundPos.getX(), anchorGroundPos.getY(), anchorGroundPos.getZ(),
                 SoundEvents.RAID_HORN.get(), SoundSource.HOSTILE, 1.4f, 0.75f);
+
         player.displayClientMessage(
                 Component.literal("§4§l⚠ ¡INCURSIÓN HOSTIL! §7Una escuadra de §c" + hordeSize + " especialistas§7 avanza hacia tu posición."),
                 true
         );
+    }
+
+    /**
+     * Localiza un punto de aparición 3D seguro y no visible directamente.
+     */
+    private static BlockPos findSafeHordeSpawnPosition(ServerLevel level, ServerPlayer player, RandomSource random) {
+        boolean hasCeiling = level.dimensionType().hasCeiling();
+        int playerBlockX = player.getBlockX();
+        int playerBlockZ = player.getBlockZ();
+        int playerSurfaceY = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, playerBlockX, playerBlockZ);
+
+        boolean isUnderground = hasCeiling || (player.getY() < playerSurfaceY - 8) || !level.canSeeSky(player.blockPosition());
+
+        for (int attempt = 0; attempt < 6; attempt++) {
+            float spawnAngle = player.getYRot() + 110.0f + random.nextFloat() * 140.0f;
+            double radians = Math.toRadians(spawnAngle);
+            double spawnDist = 26.0 + random.nextDouble() * 8.0;
+
+            int targetX = (int) (player.getX() - Math.sin(radians) * spawnDist);
+            int targetZ = (int) (player.getZ() + Math.cos(radians) * spawnDist);
+
+            BlockPos candidate = null;
+
+            if (!isUnderground) {
+                BlockPos surfacePos = level.getHeightmapPos(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, new BlockPos(targetX, 0, targetZ));
+                if (Math.abs(surfacePos.getY() - player.getY()) <= 16 && isValidSpawnFloor(level, surfacePos)) {
+                    candidate = surfacePos;
+                }
+            }
+
+            if (candidate == null) {
+                int startY = (int) player.getY() + 6;
+                int minY = Math.max(level.getMinBuildHeight() + 2, (int) player.getY() - 14);
+                int maxY = hasCeiling ? Math.min(120, startY) : Math.min(level.getMaxBuildHeight() - 2, startY);
+
+                for (int y = maxY; y >= minY; y--) {
+                    BlockPos checkPos = new BlockPos(targetX, y, targetZ);
+                    if (isValidSpawnFloor(level, checkPos)) {
+                        candidate = checkPos;
+                        break;
+                    }
+                }
+            }
+
+            if (candidate != null) {
+                return candidate;
+            }
+        }
+
+        return null;
+    }
+
+    private static BlockPos findLocalGround(ServerLevel level, int x, int anchorY, int z) {
+        for (int dy = 3; dy >= -3; dy--) {
+            BlockPos check = new BlockPos(x, anchorY + dy, z);
+            if (isValidSpawnFloor(level, check)) {
+                return check;
+            }
+        }
+        return null;
+    }
+
+    private static boolean isValidSpawnFloor(ServerLevel level, BlockPos pos) {
+        BlockState feet = level.getBlockState(pos);
+        BlockState head = level.getBlockState(pos.above());
+        BlockState floor = level.getBlockState(pos.below());
+
+        if (!feet.isAir() || !head.isAir()) {
+            return false;
+        }
+
+        if (!floor.blocksMotion()
+                || floor.is(Blocks.LAVA)
+                || floor.is(Blocks.FIRE)
+                || floor.is(Blocks.MAGMA_BLOCK)
+                || floor.is(Blocks.WATER)) {
+            return false;
+        }
+
+        return true;
     }
 
     private static void promoteToNemesisCaptain(Monster mob, NemesisCaptain captain) {
@@ -182,19 +289,13 @@ public class NemesisHordeManager {
         };
     }
 
-    /**
-     * Otorga las recompensas legendarias al derrotar a un Capitán Némesis.
-     * SPRINT 1 FIX: Protegido contra player == null en muertes ambientales.
-     */
     public static void onNemesisKilled(ServerLevel level, Monster deadCaptain, ServerPlayer player) {
         if (level == null || deadCaptain == null) return;
         Vec3 pos = deadCaptain.position();
 
-        // 1. Partículas y sonido de reto legendario superado
         level.sendParticles(ParticleTypes.TOTEM_OF_UNDYING, pos.x, pos.y + 1.0, pos.z, 50, 0.6, 0.8, 0.6, 0.2);
         level.playSound(null, pos.x, pos.y, pos.z, SoundEvents.UI_TOAST_CHALLENGE_COMPLETE, SoundSource.PLAYERS, 1.5f, 1.0f);
 
-        // 2. Progresión RPG y experiencia al jugador (si existe)
         if (player != null) {
             player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
                 skills.addPractice(SkillRegistry.COUNTER_ELITE_KILLS, 25);
@@ -208,7 +309,6 @@ public class NemesisHordeManager {
             );
         }
 
-        // 3. Botín físico garantizado en el mundo
         RandomSource random = (player != null) ? player.getRandom() : level.getRandom();
         ItemStack rewardItem = (random.nextFloat() < 0.40f)
                 ? new ItemStack(Items.NETHERITE_INGOT)

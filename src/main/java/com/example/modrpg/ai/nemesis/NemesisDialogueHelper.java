@@ -62,7 +62,7 @@ public class NemesisDialogueHelper {
         level.sendParticles(ParticleTypes.FLASH, mob.getX(), mob.getEyeY(), mob.getZ(), 1, 0, 0, 0, 0);
 
         // 3. Título en pantalla y anuncio dramático en chat
-        String introDialogue = NemesisPersonalityEngine.buildIntroDialogue(captain);
+        String introDialogue = NemesisPersonalityEngine.buildIntroDialogue(captain, mob.getRandom());
 
         player.sendSystemMessage(Component.literal("§4§l=================================================="));
         player.sendSystemMessage(Component.literal("§c§l⚔ ¡UN CAPITÁN NÉMESIS TE HA LOCALIZADO! ⚔"));
@@ -81,7 +81,7 @@ public class NemesisDialogueHelper {
      */
     public static void triggerTaunt(ServerLevel level, Mob mob, NemesisCaptain captain, ServerPlayer player) {
         if (mob == null || captain == null || player == null) return;
-        String taunt = NemesisPersonalityEngine.buildTauntDialogue(captain);
+        String taunt = NemesisPersonalityEngine.buildTauntDialogue(captain, mob.getRandom());
         player.displayClientMessage(Component.literal("§c" + captain.getName() + ": §e" + taunt), true);
         level.playSound(null, mob.getX(), mob.getY(), mob.getZ(), SoundEvents.VINDICATOR_CELEBRATE, SoundSource.HOSTILE, 1.0f, 0.9f);
     }
@@ -91,7 +91,7 @@ public class NemesisDialogueHelper {
      */
     public static void triggerEscape(ServerLevel level, Mob mob, NemesisCaptain captain, ServerPlayer player) {
         if (captain == null || player == null) return;
-        String escape = NemesisPersonalityEngine.buildEscapeDialogue(captain);
+        String escape = NemesisPersonalityEngine.buildEscapeDialogue(captain, mob.getRandom());
         player.sendSystemMessage(Component.literal("§5§l✦ NÉMESIS EN RETIRADA: §6" + captain.getName() + ": §d" + escape));
         player.displayClientMessage(Component.literal("§5§l💨 ¡EL NÉMESIS HA ESCAPADO CON VIDA!"), true);
 
@@ -106,7 +106,7 @@ public class NemesisDialogueHelper {
      */
     public static void triggerDeath(ServerLevel level, Mob mob, NemesisCaptain captain, ServerPlayer player) {
         if (captain == null || player == null) return;
-        String death = NemesisPersonalityEngine.buildDeathDialogue(captain);
+        String death = NemesisPersonalityEngine.buildDeathDialogue(captain, mob.getRandom());
 
         level.playSound(null, mob.getX(), mob.getY(), mob.getZ(),
                 SoundEvents.UI_TOAST_CHALLENGE_COMPLETE, SoundSource.PLAYERS, 1.5f, 1.0f);

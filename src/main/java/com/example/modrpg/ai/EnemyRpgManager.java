@@ -5,6 +5,7 @@ import com.example.modrpg.ai.goals.TacticalFlankGoal;
 import com.example.modrpg.ai.goals.TacticalPeelGoal;
 import com.example.modrpg.ai.goals.director.AmbushAssaultGoal;
 import com.example.modrpg.ai.goals.director.StalkerLurkGoal;
+import com.example.modrpg.ai.nemesis.NemesisHordeManager;
 import com.example.modrpg.skills.PlayerSkillsProvider;
 import com.example.modrpg.skills.magic.modular.CraftedSpell;
 import com.example.modrpg.skills.nodes.magic.MinionHelper;
@@ -14,7 +15,6 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.ai.attributes.Attributes;
-import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.entity.ai.goal.MeleeAttackGoal;
 import net.minecraft.world.entity.ai.goal.RangedAttackGoal;
 import net.minecraft.world.entity.ai.goal.RangedBowAttackGoal;
@@ -44,7 +44,7 @@ public class EnemyRpgManager {
     public static void tryInitializeMob(Monster mob) {
         if (mob == null || mob.getTags().contains(TAG_INITIALIZED)) return;
 
-        // SPRINT 3 FIX (Bug C-06): Si la entidad es un esbirro aliado del jugador, ignorar por completo
+        // SPRINT 3 FIX: Si la entidad es un esbirro aliado del jugador, ignorar por completo
         if (mob.getTags().contains(MinionHelper.TAG_MINION)) return;
 
         mob.addTag(TAG_INITIALIZED);
@@ -72,8 +72,14 @@ public class EnemyRpgManager {
         // =========================================================================
         // 3. SELECCIÓN DE ARQUETIPO Y NIVEL DE HECHIZO
         // =========================================================================
+        // SPRINT 4 FIX: Los miembros de una incursión táctica SIEMPRE son especialistas al 100%
+        boolean isHordeMember = mob.getTags().contains(NemesisHordeManager.TAG_NEMESIS_SQUAD);
         float casterChance = Math.min(0.65f, 0.20f + (power * 0.01f));
-        if (random.nextFloat() > casterChance) return; // Mantiene el mob como vanilla estándar
+
+        // Solo los spawns naturales nocturnos pasan por el filtro de probabilidad
+        if (!isHordeMember && random.nextFloat() > casterChance) {
+            return;
+        }
 
         EnemyArchetype selectedArchetype = selectArchetypeForPower(candidates, power, random);
 
@@ -84,7 +90,7 @@ public class EnemyRpgManager {
         CraftedSpell spell = selectedArchetype.buildSpell(spellPowerLevel);
         mob.addTag(TAG_CASTER);
 
-        // SPRINT 3 FIX: Purgar metas vanilla de ataque para que no colisionen con las tácticas F.E.A.R.
+        // SPRINT 3 FIX: Purgar metas vanilla de ataque para que no compitan con la IA F.E.A.R.
         purgeVanillaAttackGoals(mob);
 
         // =========================================================================
@@ -130,7 +136,10 @@ public class EnemyRpgManager {
         // =========================================================================
         // 5. ASIGNACIÓN A ESCUADRÓN TÁCTICO F.E.A.R.
         // =========================================================================
-        SquadCoordinator.assignToSquad(mob);
+        // SPRINT 4 FIX: Solo auto-asignar si no pertenece ya a un escuadrón pre-fundado
+        if (SquadCoordinator.getSquadFor(mob) == null) {
+            SquadCoordinator.assignToSquad(mob);
+        }
         SquadCoordinator.Squad squad = SquadCoordinator.getSquadFor(mob);
 
         // =========================================================================
@@ -157,11 +166,15 @@ public class EnemyRpgManager {
             mob.goalSelector.addGoal(1, new TacticalPeelGoal(mob, selectedArchetype));
         }
 
-        // Prioridad 2: Asalto en Emboscada. Se activa cuando el Director da luz verde (cierra salidas y pre-avisa).
-        mob.goalSelector.addGoal(2, new AmbushAssaultGoal(mob, selectedArchetype));
+        // Prioridad 2: Asalto en Emboscada. Vanguardia carga físicamente al detectar vulnerabilidad/clímax.
+        if (selectedArchetype.isAggressiveRush()) {
+            mob.goalSelector.addGoal(2, new AmbushAssaultGoal(mob, selectedArchetype));
+        }
 
-        // Prioridad 3: Acecho en Sombras. Mobs que acechan fuera del campo visual y huyen si el jugador los mira fijamente.
-        mob.goalSelector.addGoal(3, new StalkerLurkGoal(mob, selectedArchetype));
+        // Prioridad 3: Acecho en Sombras. Exclusivo de tiradores/casters (los tanques nunca acechan en sombras).
+        if (!selectedArchetype.isAggressiveRush()) {
+            mob.goalSelector.addGoal(3, new StalkerLurkGoal(mob, selectedArchetype));
+        }
 
         // Prioridad 4: Fuego de Supresión. Los arqueros saturan al jugador para permitir el avance del tanque.
         if (!selectedArchetype.isAggressiveRush() && selectedArchetype.getMainHandItem() == Items.BOW) {
@@ -205,7 +218,7 @@ public class EnemyRpgManager {
 
         float playerPower = 0.0f;
         if (!nearbyPlayers.isEmpty()) {
-            int[] totalLevels = new int[1]; // SPRINT 3 FIX: Evita instanciar AtomicInteger innecesario
+            int[] totalLevels = new int[1]; // Evita instanciar AtomicInteger innecesario
             for (ServerPlayer player : nearbyPlayers) {
                 player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
                     skills.getAllBranchLevels().values().forEach(lvl -> totalLevels[0] += lvl);
