@@ -484,15 +484,17 @@ public class ModEvents {
             player = sp;
         }
 
+        // D3 FIX: Actualizar a DEAD en NemesisSavedData incluso si murió por causas ambientales (player == null)
         if (victim instanceof Monster deadMonster && deadMonster.getTags().contains("modrpg_nemesis_captain")) {
             UUID captainId = deadMonster.getPersistentData().getUUID("modrpg_nemesis_uuid");
             var nemesisData = NemesisSavedData.get(level);
             var captain = nemesisData.getCaptain(captainId);
-            if (captain != null && player != null) {
-                captain.setStatus(com.example.modrpg.ai.nemesis.NemesisCaptain.Status.DEAD);
-                nemesisData.addOrUpdateCaptain(captain);
-                NemesisDialogueHelper.triggerDeath(level, deadMonster, captain, player);
-                NemesisHordeManager.onNemesisKilled(level, deadMonster, player);
+            if (captain != null) {
+                NemesisHordeManager.handleCaptainDeath(nemesisData, captain);
+                if (player != null) {
+                    NemesisDialogueHelper.triggerDeath(level, deadMonster, captain, player);
+                    NemesisHordeManager.onNemesisKilled(level, deadMonster, player);
+                }
             }
             NemesisDialogueHelper.clearNemesisMemory(deadMonster.getUUID());
         }
@@ -546,7 +548,6 @@ public class ModEvents {
             });
         }
     }
-
     // =========================================================================
     // 10. PROYECTILES DEL JUGADOR
     // =========================================================================
@@ -788,9 +789,21 @@ public class ModEvents {
     // 12. GENERACIÓN DE ENTIDADES: Inicialización Táctica
     // =========================================================================
 
+    // =========================================================================
+    // 12. GENERACIÓN DE ENTIDADES: Inicialización Táctica
+    // =========================================================================
+
     @SubscribeEvent
     public static void onMonsterSpawn(EntityJoinLevelEvent event) {
         if (!event.getLevel().isClientSide() && event.getEntity() instanceof Monster monster) {
+            // D2 FIX: No cancelar esbirros del jugador, ni entidades cargadas de disco, ni mobs inicializados
+            if (event.loadedFromDisk()
+                    || monster.getTags().contains(MinionHelper.TAG_MINION)
+                    || monster.getTags().contains(EnemyRpgManager.TAG_INITIALIZED)) {
+                EnemyRpgManager.tryInitializeMob(monster);
+                return;
+            }
+
             if (!monster.getTags().contains(NemesisHordeManager.TAG_NEMESIS_SQUAD)) {
                 AABB checkArea = monster.getBoundingBox().inflate(32.0);
                 List<ServerPlayer> nearbyPlayers = event.getLevel().getEntitiesOfClass(ServerPlayer.class, checkArea);
@@ -805,4 +818,5 @@ public class ModEvents {
             EnemyRpgManager.tryInitializeMob(monster);
         }
     }
+
 }

@@ -20,10 +20,9 @@ import java.util.EnumSet;
 import java.util.UUID;
 
 /**
- * Meta de Supervivencia Némesis (Sprint 4):
- * Cuando la vida del capitán cae por debajo del 25%, detona una bomba de humo,
- * aplica ceguera táctica y huye buscando rutas de escape transitables (en cuevas o superficie).
- * Al romper la línea de visión o ganar distancia, guarda su progreso en disco y despawnea.
+ * Meta de Supervivencia Némesis:
+ * SPRINT 1 FIX: requiresUpdateEveryTick() = true.
+ * SPRINT 2 FIX (D4): Cooldown de escape para prevenir bucles infinitos de humo/ceguera.
  */
 public class NemesisEscapeGoal extends Goal {
 
@@ -34,6 +33,8 @@ public class NemesisEscapeGoal extends Goal {
     private boolean smokeTriggered = false;
     private int escapeTicks = 0;
     private int pathRecalcDelay = 0;
+    // D4 FIX: Cooldown para evitar bucles continuos de bomba de humo en cuevas
+    private int escapeCooldownTicks = 0;
 
     public NemesisEscapeGoal(Mob mob) {
         this.mob = mob;
@@ -41,8 +42,18 @@ public class NemesisEscapeGoal extends Goal {
     }
 
     @Override
+    public boolean requiresUpdateEveryTick() {
+        return true;
+    }
+
+    @Override
     public boolean canUse() {
-        if (!mob.getTags().contains("modrpg_nemesis_captain") || mob.isPassenger()) {
+        if (escapeCooldownTicks > 0) {
+            escapeCooldownTicks--;
+            return false;
+        }
+
+        if (mob == null || !mob.getTags().contains("modrpg_nemesis_captain") || mob.isPassenger()) {
             return false;
         }
 
@@ -62,13 +73,7 @@ public class NemesisEscapeGoal extends Goal {
 
     @Override
     public boolean canContinueToUse() {
-        // SPRINT 4 FIX: No depender de mob.getTarget() != null porque la ceguera/humo anula el target vanilla
         return escapeTicks < 240 && (targetPlayer != null || lastKnownPlayerPos != null);
-    }
-
-    @Override
-    public boolean requiresUpdateEveryTick() {
-        return true;
     }
 
     @Override
@@ -77,7 +82,7 @@ public class NemesisEscapeGoal extends Goal {
         this.escapeTicks = 0;
         this.pathRecalcDelay = 0;
 
-        if (mob.getTarget() instanceof ServerPlayer player) {
+        if (mob != null && mob.getTarget() instanceof ServerPlayer player) {
             this.targetPlayer = player;
             this.lastKnownPlayerPos = player.position();
         }
@@ -89,14 +94,18 @@ public class NemesisEscapeGoal extends Goal {
         this.pathRecalcDelay = 0;
         this.targetPlayer = null;
         this.lastKnownPlayerPos = null;
-        this.mob.getNavigation().stop();
+        // D4 FIX: Si la huida finaliza sin despawnear (ej. atascado en cueva), aplicar 10s de cooldown
+        this.escapeCooldownTicks = 200;
+        if (this.mob != null) {
+            this.mob.getNavigation().stop();
+        }
     }
 
     @Override
     public void tick() {
+        if (mob == null || mob.level().isClientSide()) return;
         ServerLevel level = (ServerLevel) mob.level();
 
-        // 1. Actualizar última posición conocida del jugador si sigue con vida
         if (targetPlayer != null && targetPlayer.isAlive()) {
             this.lastKnownPlayerPos = targetPlayer.position();
         }
@@ -106,25 +115,20 @@ public class NemesisEscapeGoal extends Goal {
             return;
         }
 
-        // =========================================================================
-        // 2. ESTALLIDO DE BOMBA DE HUMO Y CEGUERA TÁCTICA (Solo una vez al inicio)
-        // =========================================================================
+        // Estallido de humo y ceguera táctica una sola vez al inicio de la huida
         if (!smokeTriggered) {
             smokeTriggered = true;
 
-            // Cortina densa de humo
             level.sendParticles(ParticleTypes.CAMPFIRE_COSY_SMOKE, mob.getX(), mob.getY() + 0.5, mob.getZ(), 45, 1.2, 0.6, 1.2, 0.05);
             level.sendParticles(ParticleTypes.FLASH, mob.getX(), mob.getEyeY(), mob.getZ(), 2, 0, 0, 0, 0);
 
             level.playSound(null, mob.getX(), mob.getY(), mob.getZ(),
                     SoundEvents.ENDERMAN_TELEPORT, SoundSource.HOSTILE, 1.4f, 0.7f);
 
-            // Ceguera de 2 segundos si el jugador está en un radio de 8 bloques de la bomba
             if (targetPlayer != null && mob.distanceToSqr(targetPlayer) <= 64.0) {
                 targetPlayer.addEffect(new MobEffectInstance(MobEffects.BLINDNESS, 40, 0, false, false));
             }
 
-            // Diálogo dramático de huida
             UUID captainId = mob.getPersistentData().getUUID("modrpg_nemesis_uuid");
             var nemesisData = NemesisSavedData.get(level);
             var captain = nemesisData.getCaptain(captainId);
@@ -135,15 +139,11 @@ public class NemesisEscapeGoal extends Goal {
 
         escapeTicks++;
 
-        // =========================================================================
-        // 3. NAVEGACIÓN 3D SEGURA LEJOS DEL JUGADOR (Pathfinding adaptativo en cuevas)
-        // =========================================================================
+        // Navegación lejos del jugador
         if (--pathRecalcDelay <= 0 || mob.getNavigation().isDone()) {
-            pathRecalcDelay = 15; // Recalcular cada 0.75s para evitar lag de pathfinding continuo
+            pathRecalcDelay = 15;
 
             Vec3 fleePos = null;
-
-            // SPRINT 4 FIX: Usar DefaultRandomPos nativo de Minecraft para encontrar bloques de aire transitables
             if (mob instanceof PathfinderMob pathfinderMob) {
                 fleePos = DefaultRandomPos.getPosAway(pathfinderMob, 16, 7, lastKnownPlayerPos);
             }
@@ -151,8 +151,6 @@ public class NemesisEscapeGoal extends Goal {
             if (fleePos != null) {
                 mob.getNavigation().moveTo(fleePos.x, fleePos.y, fleePos.z, 1.40);
             } else {
-                // Fallback: Si DefaultRandomPos no encuentra salida inmediata (ej. túnel de 1x2),
-                // proyectar un vector inverso suave hacia donde haya aire
                 Vec3 awayDir = mob.position().subtract(lastKnownPlayerPos);
                 if (awayDir.lengthSqr() > 1e-4) {
                     Vec3 fallback = mob.position().add(awayDir.normalize().scale(8.0));
@@ -161,16 +159,10 @@ public class NemesisEscapeGoal extends Goal {
             }
         }
 
-        // =========================================================================
-        // 4. CONDICIONES DE ESCAPE EXITOSO Y DESPAWN SEGURO
-        // =========================================================================
+        // Condiciones de escape exitoso
         double distSq = mob.distanceToSqr(lastKnownPlayerPos);
         boolean lostLoS = (targetPlayer == null) || !mob.getSensing().hasLineOfSight(targetPlayer);
 
-        // El Némesis escapa con éxito si:
-        // A) Supera los 26 bloques de distancia en línea recta (distSq > 676).
-        // B) Rompió la línea de visión tras 4 segundos de huida y está a más de 12 bloques (distSq > 144).
-        // C) Failsafe: lleva 10 segundos huyendo (escapeTicks > 200) y el jugador no lo ve.
         boolean canEscapeCleanly = (distSq > 676.0)
                 || (lostLoS && escapeTicks > 80 && distSq > 144.0)
                 || (lostLoS && escapeTicks > 200);
@@ -182,16 +174,15 @@ public class NemesisEscapeGoal extends Goal {
 
             if (captain != null) {
                 captain.setStatus(NemesisCaptain.Status.WAITING_REVENGE);
-                captain.addPrestige(25); // Gana prestigio por sobrevivir
+                captain.addPrestige(25);
                 nemesisData.addOrUpdateCaptain(captain);
             }
 
-            // Limpieza de memoria temporal de intro/diálogos
+            // D4 FIX: Ahora sí se limpia la memoria porque el mob desaparece definitivamente del mundo
             NemesisDialogueHelper.clearNemesisMemory(mob.getUUID());
 
-            // Efecto de desvanecimiento
             level.sendParticles(ParticleTypes.POOF, mob.getX(), mob.getY() + 0.5, mob.getZ(), 20, 0.4, 0.4, 0.4, 0.05);
-            mob.discard(); // Desaparece limpiamente del mundo sin soltar botín
+            mob.discard();
         }
     }
 }

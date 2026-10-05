@@ -89,16 +89,15 @@ public class NemesisDialogueHelper {
     /**
      * Aviso dramático cuando el némesis huye con vida en una bomba de humo.
      */
+    /**
+     * D4 FIX: Aviso dramático de escape. NO borra la memoria de intro
+     * para evitar que el capitán grite su presentación mientras huye.
+     */
     public static void triggerEscape(ServerLevel level, Mob mob, NemesisCaptain captain, ServerPlayer player) {
         if (captain == null || player == null) return;
         String escape = NemesisPersonalityEngine.buildEscapeDialogue(captain, mob.getRandom());
         player.sendSystemMessage(Component.literal("§5§l✦ NÉMESIS EN RETIRADA: §6" + captain.getName() + ": §d" + escape));
         player.displayClientMessage(Component.literal("§5§l💨 ¡EL NÉMESIS HA ESCAPADO CON VIDA!"), true);
-
-        // Limpiar memoria temporal de la entidad que acaba de despawnear
-        if (mob != null) {
-            clearNemesisMemory(mob.getUUID());
-        }
     }
 
     /**

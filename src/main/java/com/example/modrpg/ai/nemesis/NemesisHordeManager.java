@@ -35,14 +35,15 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * Orquesta la economía de hordas en el mundo Hardcore de 100 días.
  * - SPRINT 1: Aislamiento por dimensión y limpieza de memoria en desconexión.
+ * - SPRINT 2 FIX (D1 & D3): Persistencia de raid en NBT, persistencia de capitán y muertes ambientales.
  * - SPRINT 4: Generación volumétrica 3D adaptada a Cuevas y Nether.
- * - SPRINT 4 FIX: Asignación inmediata de Target, rango de seguimiento de 48m y activación del combate.
  */
 public class NemesisHordeManager {
 
     public static final String TAG_NEMESIS_SQUAD = "modrpg_nemesis_squad";
+    // D1 FIX: Clave NBT persistente para el cooldown de incursión
+    public static final String TAG_LAST_RAID_GAMETIME = "modrpg_last_raid_gametime";
 
-    // Registra el último tick en el que se lanzó una incursión a cada jugador (cooldown de 2 a 3 días)
     private static final Map<UUID, Long> LAST_RAID_TICK = new ConcurrentHashMap<>();
 
     public static void clearPlayer(UUID playerUUID) {
@@ -62,36 +63,36 @@ public class NemesisHordeManager {
     }
 
     public static void tryTriggerNemesisRaid(ServerLevel level, ServerPlayer player) {
-        if (level == null || player == null || !player.isAlive() || isNemesisRaidActiveNear(player)) return;
+        // D1 FIX: No generar incursiones a jugadores muertos, en creativo, espectador o en respiro
+        if (level == null || player == null || !player.isAlive() || player.isCreative() || player.isSpectator()) return;
+        if (MacroDirectorManager.isPlayerInReprieve(player.getUUID())) return;
+        if (isNemesisRaidActiveNear(player)) return;
 
         long currentTick = level.getGameTime();
-        long lastRaid = LAST_RAID_TICK.getOrDefault(player.getUUID(), -72000L);
+        // D1 FIX: Leer el tick persistido en NBT, cerrando el exploit de reconexión
+        long lastRaid = player.getPersistentData().getLong(TAG_LAST_RAID_GAMETIME);
 
         // Intervalo mínimo de 2 días de Minecraft (48,000 ticks) entre incursiones
-        if (currentTick - lastRaid < 48000L) {
+        if (lastRaid != 0 && (currentTick - lastRaid < 48000L)) {
             return;
         }
 
+        player.getPersistentData().putLong(TAG_LAST_RAID_GAMETIME, currentTick);
         LAST_RAID_TICK.put(player.getUUID(), currentTick);
         spawnTacticalHorde(level, player);
     }
 
-    /**
-     * Genera la escuadra táctica de tamaño controlado en un punto ciego exterior o subterráneo.
-     */
     public static void spawnTacticalHorde(ServerLevel level, ServerPlayer player) {
         int hordeSize = HordeComposition.calculateHordeSize(level.getDayTime());
         List<EnemyArchetype> archetypes = HordeComposition.buildSquadArchetypes(hordeSize);
         RandomSource random = player.getRandom();
 
-        // 1. Localizar un punto ancla seguro en el entorno 3D real del jugador
         BlockPos anchorGroundPos = findSafeHordeSpawnPosition(level, player, random);
         if (anchorGroundPos == null) {
-            LAST_RAID_TICK.put(player.getUUID(), level.getGameTime() - 42000L);
+            player.getPersistentData().putLong(TAG_LAST_RAID_GAMETIME, level.getGameTime() - 42000L);
             return;
         }
 
-        // 2. Obtener o generar los datos del Capitán Némesis
         long day = level.getDayTime() / 24000L;
         NemesisCaptain captain = null;
         var nemesisData = NemesisSavedData.get(level);
@@ -118,13 +119,11 @@ public class NemesisHordeManager {
 
         SquadCoordinator.Squad unifiedSquad = null;
 
-        // 3. Instanciar los miembros de la escuadra
         for (int i = 0; i < hordeSize; i++) {
             EnemyArchetype archetype = archetypes.get(i);
             Monster mob = createMobForArchetype(level, archetype);
             if (mob == null) continue;
 
-            // Offset horizontal disperso
             double offsetX = (random.nextDouble() - 0.5) * 4.0;
             double offsetZ = (random.nextDouble() - 0.5) * 4.0;
             int mobX = (int) Math.round(anchorGroundPos.getX() + offsetX);
@@ -138,26 +137,21 @@ public class NemesisHordeManager {
             mob.moveTo(mobSpawnPos.getX() + 0.5, mobSpawnPos.getY(), mobSpawnPos.getZ() + 0.5,
                     random.nextFloat() * 360.0f, 0.0f);
 
-            // SPRINT 4 FIX: Ampliar visión a 48 bloques para que detecten al jugador desde la distancia de spawn
             var followAttr = mob.getAttribute(Attributes.FOLLOW_RANGE);
             if (followAttr != null && followAttr.getBaseValue() < 48.0) {
                 followAttr.setBaseValue(48.0);
             }
 
-            // Asignar al jugador como objetivo hostil de inmediato
             mob.setTarget(player);
-
             mob.addTag(TAG_NEMESIS_SQUAD);
-            level.addFreshEntity(mob); // Añadir al nivel antes de inicializar para que la detección de escuadrón funcione
+            level.addFreshEntity(mob);
 
             EnemyRpgManager.tryInitializeMob(mob);
 
-            // Recuperar el escuadrón unificado creado en SquadCoordinator
             if (unifiedSquad == null) {
                 unifiedSquad = SquadCoordinator.getSquadFor(mob);
             }
 
-            // Si es el primer miembro y hay capitán disponible: promover a Capitán Némesis
             if (i == 0 && captain != null) {
                 promoteToNemesisCaptain(mob, captain);
                 if (unifiedSquad != null) {
@@ -168,15 +162,12 @@ public class NemesisHordeManager {
             level.sendParticles(ParticleTypes.SMOKE, mob.getX(), mob.getY() + 0.5, mob.getZ(), 10, 0.3, 0.3, 0.3, 0.02);
         }
 
-        // 4. Asegurar la bolsa de tokens del escuadrón
         if (unifiedSquad != null) {
             unifiedSquad.rebuildTokenPool();
         }
 
-        // SPRINT 4 FIX: Activar al Director en modo Emboscada de inmediato para que coordinen el ataque
         MacroDirectorManager.getPacingData(player.getUUID()).setState(DirectorState.AMBUSH_READY, 40);
 
-        // 5. Señal de audio ominosa al iniciar la incursión
         level.playSound(null, anchorGroundPos.getX(), anchorGroundPos.getY(), anchorGroundPos.getZ(),
                 SoundEvents.RAID_HORN.get(), SoundSource.HOSTILE, 1.4f, 0.75f);
 
@@ -186,9 +177,6 @@ public class NemesisHordeManager {
         );
     }
 
-    /**
-     * Localiza un punto de aparición 3D seguro y no visible directamente.
-     */
     private static BlockPos findSafeHordeSpawnPosition(ServerLevel level, ServerPlayer player, RandomSource random) {
         boolean hasCeiling = level.dimensionType().hasCeiling();
         int playerBlockX = player.getBlockX();
@@ -255,15 +243,11 @@ public class NemesisHordeManager {
             return false;
         }
 
-        if (!floor.blocksMotion()
-                || floor.is(Blocks.LAVA)
-                || floor.is(Blocks.FIRE)
-                || floor.is(Blocks.MAGMA_BLOCK)
-                || floor.is(Blocks.WATER)) {
-            return false;
-        }
-
-        return true;
+        return floor.blocksMotion()
+                && !floor.is(Blocks.LAVA)
+                && !floor.is(Blocks.FIRE)
+                && !floor.is(Blocks.MAGMA_BLOCK)
+                && !floor.is(Blocks.WATER);
     }
 
     private static void promoteToNemesisCaptain(Monster mob, NemesisCaptain captain) {
@@ -276,6 +260,9 @@ public class NemesisHordeManager {
         mob.setItemSlot(EquipmentSlot.HEAD, new ItemStack(Items.DIAMOND_HELMET));
         mob.setDropChance(EquipmentSlot.HEAD, 0.05f);
 
+        // D3 FIX: Persistencia requerida para evitar despawn natural por distancia (>128 bloques)
+        mob.setPersistenceRequired();
+
         mob.goalSelector.addGoal(0, new com.example.modrpg.ai.nemesis.goals.NemesisEscapeGoal(mob));
     }
 
@@ -287,6 +274,14 @@ public class NemesisHordeManager {
             case VOID_WEAVER -> EntityType.SPIDER.create(level);
             case STORM_EVOKER -> EntityType.WITCH.create(level);
         };
+    }
+
+    // D3 FIX: Registro seguro de muerte del Capitán (ambiental o directa)
+    public static void handleCaptainDeath(NemesisSavedData nemesisData, NemesisCaptain captain) {
+        if (captain != null && nemesisData != null) {
+            captain.setStatus(NemesisCaptain.Status.DEAD);
+            nemesisData.addOrUpdateCaptain(captain);
+        }
     }
 
     public static void onNemesisKilled(ServerLevel level, Monster deadCaptain, ServerPlayer player) {
