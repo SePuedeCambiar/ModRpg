@@ -50,9 +50,11 @@ public class MagicProjectileEntity extends ThrowableItemProjectile {
         super.onHitEntity(result);
         if (!this.level().isClientSide && result.getEntity() instanceof LivingEntity victim) {
             LivingEntity shooter = (LivingEntity) this.getOwner();
-            if (shooter != null && victim.isAlliedTo(shooter)) return;
+            // B2 FIX: Validar fuego amigo unificado antes de aplicar daño
+            if (shooter != null && !CraftedSpell.canHarmTarget(shooter, victim)) {
+                return;
+            }
 
-            // ATRIBUCIÓN CORRECTA: Daño atribuido al dueño del proyectil
             DamageSource damageSource = shooter != null
                     ? this.damageSources().indirectMagic(this, shooter)
                     : this.damageSources().magic();
@@ -68,6 +70,7 @@ public class MagicProjectileEntity extends ThrowableItemProjectile {
             this.discard();
         }
     }
+
 
     @Override
     protected void onHitBlock(BlockHitResult result) {

@@ -22,21 +22,18 @@ import net.minecraft.world.entity.monster.Zombie;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.ClipContext;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.EnumSet;
+import java.util.List;
 
-/**
- * IA Táctica de Combate inspirada en F.E.A.R.
- * - Sprint 1: Telegrafiado sensorial (Halo amarillo interrumpible / Aura roja imbloqueable).
- * - Sprint 2: Tokens con Lease Heartbeat (Primary / Suppression / Peel) y caída por aturdimiento.
- * - Sprint 3: Cancelación real de casteo, desenganche seguro de tokens en stop() y coberturas.
- */
 public class TacticalCasterGoal extends Goal {
 
     public static final String TAG_INTERRUPTIBLE = "modrpg_interruptible_charge";
     public static final String TAG_STAGGERED     = "modrpg_staggered";
+    public static final String TAG_RED_UNBLOCKABLE = "modrpg_red_unblockable";
 
     private final Mob mob;
     private final EnemyArchetype archetype;
@@ -50,6 +47,15 @@ public class TacticalCasterGoal extends Goal {
     private int strafeDirection = 1;
     private int strafeTimer = 0;
     private int specialSkillCooldownTicks = 0;
+    private int peelRequestCooldown = 0;
+
+    // A3 FIX: Throttling de pathfinding
+    private int repathDelay = 0;
+    private Vec3 lastTargetPos = null;
+
+    // C8 FIX: Regla de piedad en hechiceros (pausa a <= 6 HP)
+    private int mercyCooldown = 0;
+    private int mercyPauseTicks = 0;
 
     public TacticalCasterGoal(Mob mob, EnemyArchetype archetype, CraftedSpell spell) {
         this.mob = mob;
@@ -59,7 +65,13 @@ public class TacticalCasterGoal extends Goal {
     }
 
     @Override
+    public boolean requiresUpdateEveryTick() {
+        return true;
+    }
+
+    @Override
     public boolean canUse() {
+        if (mob == null) return false;
         LivingEntity target = mob.getTarget();
         return target != null && target.isAlive();
     }
@@ -70,54 +82,49 @@ public class TacticalCasterGoal extends Goal {
     }
 
     @Override
-    public boolean requiresUpdateEveryTick() {
-        return true;
-    }
-
-    @Override
     public void start() {
-        this.cooldownTicks = 20;
+        // B6 FIX: Preservar cooldowns si ya están corriendo en lugar de reiniciarlos
+        this.cooldownTicks = Math.max(this.cooldownTicks, 20);
         this.isCharging = false;
         this.chargeTicks = 0;
-        this.specialSkillCooldownTicks = 60;
+        this.specialSkillCooldownTicks = Math.max(this.specialSkillCooldownTicks, 60);
+        this.repathDelay = 0;
+        this.lastTargetPos = null;
+        this.mercyPauseTicks = 0;
     }
 
-    /**
-     * SPRINT 3 FIX: Limpieza atómica cuando el combate concluye o el objetivo muere/desaparece.
-     * Libera tokens tácticos y nodos de cobertura para no bloquear al escuadrón.
-     */
     @Override
     public void stop() {
         this.isCharging = false;
         this.chargeTicks = 0;
-        this.mob.removeTag(TAG_INTERRUPTIBLE);
-
-        SquadCoordinator.Squad squad = SquadCoordinator.getSquadFor(mob);
-        if (squad != null) {
-            SquadTacticalToken.TokenType tokenType = (spell.getTiming() == SpellTiming.RAPID_FIRE)
-                    ? SquadTacticalToken.TokenType.SUPPRESSION
-                    : SquadTacticalToken.TokenType.PRIMARY_ATTACK;
-            squad.releaseToken(mob, tokenType);
-            squad.getCoverManager().releaseCover(mob.getUUID());
+        if (this.mob != null) {
+            this.mob.removeTag(TAG_INTERRUPTIBLE);
+            this.mob.removeTag(TAG_RED_UNBLOCKABLE);
+            SquadCoordinator.Squad squad = SquadCoordinator.getSquadFor(mob);
+            if (squad != null && spell != null) {
+                SquadTacticalToken.TokenType tokenType = (spell.getTiming() == SpellTiming.RAPID_FIRE)
+                        ? SquadTacticalToken.TokenType.SUPPRESSION
+                        : SquadTacticalToken.TokenType.PRIMARY_ATTACK;
+                squad.releaseToken(mob, tokenType);
+                squad.getCoverManager().releaseCover(mob.getUUID());
+            }
         }
     }
 
     @Override
     public void tick() {
-        // =========================================================================
-        // 1. ESTADO DE ATURDIMIENTO / ROMPE-POSTURA (STAGGER)
-        // =========================================================================
+        if (mob == null || mob.level().isClientSide()) return;
+
         int staggerTimer = mob.getPersistentData().getInt("modrpg_stagger_timer");
         if (staggerTimer > 0 || mob.getTags().contains(TAG_STAGGERED)) {
             mob.getNavigation().stop();
 
-            // SPRINT 3 FIX: Cancelación física real del casteo en curso
             if (this.isCharging) {
                 this.isCharging = false;
                 this.chargeTicks = 0;
                 this.isRedUnblockable = false;
                 this.mob.removeTag(TAG_INTERRUPTIBLE);
-                // Penalizar con 2s de recarga tras recuperarse del aturdimiento
+                this.mob.removeTag(TAG_RED_UNBLOCKABLE);
                 this.cooldownTicks = Math.max(this.cooldownTicks, 40);
             }
 
@@ -142,6 +149,28 @@ public class TacticalCasterGoal extends Goal {
             return;
         }
 
+        // =========================================================================
+        // C8 FIX: REGLA DE PIEDAD (Pausa de 2s si el jugador cae a <= 3 corazones / 6.0 HP)
+        // =========================================================================
+        if (target instanceof ServerPlayer player && player.getHealth() <= 6.0f && mercyCooldown <= 0 && mercyPauseTicks <= 0) {
+            mercyPauseTicks = 40; // 2 segundos de pausa de ataque
+            mercyCooldown = 240;  // 12 segundos de enfriamiento para volver a activarse
+            this.isCharging = false;
+            this.chargeTicks = 0;
+            mob.removeTag(TAG_INTERRUPTIBLE);
+            mob.removeTag(TAG_RED_UNBLOCKABLE);
+            return;
+        }
+
+        if (mercyPauseTicks > 0) {
+            mercyPauseTicks--;
+            return;
+        }
+
+        if (mercyCooldown > 0) {
+            mercyCooldown--;
+        }
+
         double distanceSq = mob.distanceToSqr(target);
         boolean hasLineOfSight = mob.getSensing().hasLineOfSight(target);
 
@@ -149,39 +178,28 @@ public class TacticalCasterGoal extends Goal {
 
         if (cooldownTicks > 0) cooldownTicks--;
         if (specialSkillCooldownTicks > 0) specialSkillCooldownTicks--;
+        if (peelRequestCooldown > 0) peelRequestCooldown--;
 
         SquadCoordinator.Squad squad = SquadCoordinator.getSquadFor(mob);
 
-        // =========================================================================
-        // 2. MANIOBRA F.E.A.R.: PEELING Y RESCATE REACTIVO
-        // =========================================================================
+        // B3 FIX: Petición de rescate controlada (solo 1 vez cada 3 segundos); el rescate lo ejecuta TacticalPeelGoal
         if (squad != null && mob.level() instanceof ServerLevel level) {
-            // A) Caster frágil acorralado a menos de 5 bloques: Pide auxilio
-            if (!archetype.isAggressiveRush() && distanceSq < 25.0) {
+            if (archetype != null && !archetype.isAggressiveRush() && distanceSq < 25.0 && peelRequestCooldown <= 0) {
                 squad.requestPeel(mob, target);
                 SquadBarkManager.triggerBark(mob, SquadBarkManager.BarkType.PEEL_REQUEST, level);
-            }
-
-            // B) Vanguardia frontal acude de inmediato a interceptar
-            if (archetype.isAggressiveRush() && squad.isPeelRequested()) {
-                mob.getNavigation().moveTo(target, 1.45);
-                SquadBarkManager.triggerBark(mob, SquadBarkManager.BarkType.VANGUARD_INTERCEPT, level);
+                peelRequestCooldown = 60;
             }
         }
 
-        // Habilidades especiales por arquetipo (curación de tormenta / invocación nigromante)
         handleArchetypeSpecials(target, distanceSq);
 
-        // =========================================================================
-        // 3. TELEGRAFIADO SENSORIAL DE CANALIZACIÓN (SPRINT 1)
-        // =========================================================================
         if (isCharging) {
             chargeTicks++;
 
-            if (!archetype.isAggressiveRush()) {
+            if (archetype != null && !archetype.isAggressiveRush()) {
                 mob.getNavigation().stop();
             } else {
-                mob.getNavigation().moveTo(target, 1.30);
+                throttledMoveTo(target.position(), 1.30);
             }
 
             int requiredCharge = isRedUnblockable ? 26 : 20;
@@ -198,11 +216,11 @@ public class TacticalCasterGoal extends Goal {
                 isCharging = false;
                 chargeTicks = 0;
                 mob.removeTag(TAG_INTERRUPTIBLE);
+                mob.removeTag(TAG_RED_UNBLOCKABLE);
 
                 executeCast(target);
 
-                // Liberar el token al disparar
-                if (squad != null) {
+                if (squad != null && spell != null) {
                     SquadTacticalToken.TokenType tokenType = (spell.getTiming() == SpellTiming.RAPID_FIRE)
                             ? SquadTacticalToken.TokenType.SUPPRESSION
                             : SquadTacticalToken.TokenType.PRIMARY_ATTACK;
@@ -212,24 +230,17 @@ public class TacticalCasterGoal extends Goal {
             return;
         }
 
-        // =========================================================================
-        // 4. MOVIMIENTO Y COBERTURAS OPTIMIZADAS
-        // =========================================================================
         handleMovement(target, distanceSq, hasLineOfSight, squad);
 
-        // =========================================================================
-        // 5. SOLICITUD DE TOKENS CON LEASE HEARTBEAT
-        // =========================================================================
-        double maxCastDistSq = (archetype.isAggressiveRush()) ? 16.0 : 400.0;
+        double maxCastDistSq = (archetype != null && archetype.isAggressiveRush()) ? 16.0 : 400.0;
 
-        if (cooldownTicks <= 0 && hasLineOfSight && distanceSq <= maxCastDistSq) {
+        if (cooldownTicks <= 0 && hasLineOfSight && distanceSq <= maxCastDistSq && spell != null) {
             SquadTacticalToken.TokenType neededToken = (spell.getTiming() == SpellTiming.RAPID_FIRE)
                     ? SquadTacticalToken.TokenType.SUPPRESSION
                     : SquadTacticalToken.TokenType.PRIMARY_ATTACK;
 
             int chargeRequired = (spell.getTiming() == SpellTiming.HEAVY_BURST || spell.getShape() == SpellShape.GROUND_AOE) ? 26 : 20;
 
-            // Solicitar formalmente el token con lease limitado para evitar bloqueos
             boolean canCast = (squad == null) || squad.requestToken(mob, neededToken, chargeRequired + 10);
 
             if (canCast) {
@@ -241,11 +252,12 @@ public class TacticalCasterGoal extends Goal {
 
                 if (isRedUnblockable) {
                     mob.removeTag(TAG_INTERRUPTIBLE);
+                    mob.addTag(TAG_RED_UNBLOCKABLE);
                 } else {
                     mob.addTag(TAG_INTERRUPTIBLE);
+                    mob.removeTag(TAG_RED_UNBLOCKABLE);
                 }
 
-                // Liberar cualquier cobertura reservada al momento de iniciar ataque
                 if (squad != null) {
                     squad.getCoverManager().releaseCover(mob.getUUID());
                 }
@@ -253,16 +265,12 @@ public class TacticalCasterGoal extends Goal {
         }
     }
 
-    /**
-     * Interrumpe el casteo cuando el jugador acierta un golpe con recarga >= 85%.
-     * Provoca rotura de postura inmediata y revoca todos los tokens del mob en el acto.
-     */
     public static void interruptCaster(Mob mob, ServerPlayer player) {
         mob.removeTag(TAG_INTERRUPTIBLE);
+        mob.removeTag(TAG_RED_UNBLOCKABLE);
         mob.addTag(TAG_STAGGERED);
-        mob.getPersistentData().putInt("modrpg_stagger_timer", 45); // 2.25 segundos
+        mob.getPersistentData().putInt("modrpg_stagger_timer", 45);
 
-        // Liberación forzada de tokens y coberturas en el mismo tick
         SquadCoordinator.Squad squad = SquadCoordinator.getSquadFor(mob);
         if (squad != null) {
             squad.forceReleaseAllTokens(mob.getUUID());
@@ -276,43 +284,43 @@ public class TacticalCasterGoal extends Goal {
     }
 
     private void executeCast(LivingEntity target) {
+        if (spell == null) return;
         Vec3 toTarget = target.getEyePosition().subtract(mob.getEyePosition()).normalize();
         spell.cast(mob, toTarget);
         this.cooldownTicks = spell.calculateCooldownTicks();
     }
 
     private void handleMovement(LivingEntity target, double distanceSq, boolean hasLineOfSight, SquadCoordinator.Squad squad) {
+        if (archetype == null) return;
         double desiredDistance = archetype.getPreferredDistance();
         double kitingDistance = archetype.getKitingThresholdDistance();
 
         if (archetype.isAggressiveRush()) {
-            mob.getNavigation().moveTo(target, 1.25);
+            throttledMoveTo(target.position(), 1.25);
         } else {
-            // A) Flanqueo angular coordinado
-            if (squad != null && distanceSq > 36.0 && mob.level() instanceof ServerLevel level) {
+            // B5 FIX: Solo flanquear si es VOID_WEAVER
+            if (archetype == EnemyArchetype.VOID_WEAVER && squad != null && distanceSq > 36.0 && mob.level() instanceof ServerLevel level) {
                 Vec3 flankPos = squad.getFlankingPosition(mob, target);
                 if (flankPos != null) {
-                    mob.getNavigation().moveTo(flankPos.x, flankPos.y, flankPos.z, 1.15);
+                    throttledMoveTo(flankPos, 1.15);
                     SquadBarkManager.triggerBark(mob, SquadBarkManager.BarkType.FLANKING, level);
                     return;
                 }
             }
 
-            // B) Búsqueda de cobertura optimizada si está en cooldown largo (> 2s)
             if (cooldownTicks > 40 && hasLineOfSight) {
                 Vec3 coverPos = findTacticalCover(target, squad);
                 if (coverPos != null) {
-                    mob.getNavigation().moveTo(coverPos.x, coverPos.y, coverPos.z, 1.25);
+                    throttledMoveTo(coverPos, 1.25);
                     return;
                 }
             }
 
-            // C) Kiting y Strafing clásico
             if (distanceSq < (kitingDistance * kitingDistance)) {
                 mob.getNavigation().stop();
                 mob.getMoveControl().strafe(-0.6f, 0.4f * strafeDirection);
             } else if (distanceSq > (desiredDistance * desiredDistance)) {
-                mob.getNavigation().moveTo(target, 1.05);
+                throttledMoveTo(target.position(), 1.05);
             } else {
                 mob.getNavigation().stop();
                 mob.getMoveControl().strafe(0.0f, 0.5f * strafeDirection);
@@ -326,12 +334,20 @@ public class TacticalCasterGoal extends Goal {
         }
     }
 
+    // A3 FIX: Throttling de pathfinding a 10-12 ticks
+    private void throttledMoveTo(Vec3 dest, double speed) {
+        if (lastTargetPos == null || dest.distanceToSqr(lastTargetPos) > 4.0 || --repathDelay <= 0) {
+            mob.getNavigation().moveTo(dest.x, dest.y, dest.z, speed);
+            lastTargetPos = dest;
+            repathDelay = 12;
+        }
+    }
+
     private Vec3 findTacticalCover(LivingEntity player, SquadCoordinator.Squad squad) {
         if (squad != null) {
             return squad.getCoverManager().findAndClaimCover(mob, player, 12.0);
         }
 
-        // Fallback para mobs sin escuadrón
         Vec3 mobPos = mob.position();
         Vec3 toPlayer = player.position().subtract(mobPos).normalize();
         BlockPos behindPos = BlockPos.containing(mobPos.subtract(toPlayer.scale(4.0)));
@@ -363,10 +379,17 @@ public class TacticalCasterGoal extends Goal {
 
         if (archetype == EnemyArchetype.CRYPT_NECROMANCER && specialSkillCooldownTicks <= 0) {
             if (distanceSq < 36.0 && mob.level() instanceof ServerLevel level) {
-                specialSkillCooldownTicks = 300;
-                spawnNecroMinion(level, target);
-                Vec3 awayFromTarget = mob.position().subtract(target.position()).normalize().scale(1.2);
-                mob.setDeltaMovement(new Vec3(awayFromTarget.x, 0.3, awayFromTarget.z));
+                // B6 FIX: Limitar a un máximo de 3 esbirros por Nigromante
+                AABB checkZone = mob.getBoundingBox().inflate(16.0);
+                List<Zombie> existingMinions = level.getEntitiesOfClass(Zombie.class, checkZone,
+                        z -> z.getTags().contains("modrpg_necro_minion_" + mob.getUUID()));
+
+                if (existingMinions.size() < 3) {
+                    specialSkillCooldownTicks = 300;
+                    spawnNecroMinion(level, target);
+                    Vec3 awayFromTarget = mob.position().subtract(target.position()).normalize().scale(1.2);
+                    mob.setDeltaMovement(new Vec3(awayFromTarget.x, 0.3, awayFromTarget.z));
+                }
             }
         }
     }
@@ -383,8 +406,8 @@ public class TacticalCasterGoal extends Goal {
         minion.setCustomNameVisible(false);
         minion.setTarget(target);
 
-        // SPRINT 3 FIX: Marcar al esbirro para evitar que sea capturado por el EnemyRpgManager
         minion.addTag(EnemyRpgManager.TAG_INITIALIZED);
+        minion.addTag("modrpg_necro_minion_" + mob.getUUID());
 
         level.addFreshEntity(minion);
         level.sendParticles(ParticleTypes.SOUL, spawnPos.x, spawnPos.y + 0.5, spawnPos.z, 15, 0.3, 0.3, 0.3, 0.05);

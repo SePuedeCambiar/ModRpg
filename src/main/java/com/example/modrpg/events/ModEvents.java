@@ -59,17 +59,16 @@ import net.minecraftforge.event.entity.EntityLeaveLevelEvent;
 import net.minecraftforge.event.entity.living.*;
 import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.event.entity.player.PlayerInteractEvent;
+import net.minecraftforge.event.server.ServerStoppedEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
-import net.minecraftforge.event.server.ServerStoppedEvent;
-
-
 
 import java.util.List;
 import java.util.UUID;
 
 @Mod.EventBusSubscriber(modid = ModRpg.MODID)
 public class ModEvents {
+
     @SubscribeEvent
     public static void onServerStopped(ServerStoppedEvent event) {
         SquadCoordinator.clearAll();
@@ -102,7 +101,6 @@ public class ModEvents {
         event.getOriginal().invalidateCaps();
 
         if (event.getEntity() instanceof ServerPlayer serverPlayer) {
-            // SPRINT 1 FIX: Reaplicar modificadores tras clonar (muerte/respawn)
             SkillAttributes.applyModifiers(serverPlayer);
             SkillEconomy.syncSkills(serverPlayer);
         }
@@ -123,7 +121,6 @@ public class ModEvents {
         PlayerStressTracker.clearPlayer(uuid);
         PlayerVulnerabilityDetector.clearPlayer(uuid);
         MacroDirectorManager.clearPlayer(uuid);
-        // SPRINT 1 FIX: Purgar cooldown de incursión Némesis
         NemesisHordeManager.clearPlayer(uuid);
     }
 
@@ -138,7 +135,6 @@ public class ModEvents {
 
     @SubscribeEvent
     public static void onLevelTick(TickEvent.LevelTickEvent event) {
-        // SPRINT 1 FIX: Corre exactamente 1 vez por tick del nivel sin multiplicar por jugadores
         if (event.phase == TickEvent.Phase.END && event.level instanceof ServerLevel serverLevel) {
             SquadCoordinator.tickSquads(serverLevel);
         }
@@ -150,7 +146,6 @@ public class ModEvents {
 
     @SubscribeEvent
     public static void onEntityLeaveLevel(EntityLeaveLevelEvent event) {
-        // SPRINT 1 FIX: Purgar mobs que despawnean por distancia (>128 bloques) o descarga de chunks
         if (!event.getLevel().isClientSide() && event.getEntity() instanceof Mob mob) {
             SquadCoordinator.onMobDespawnOrLeave(mob);
         }
@@ -210,7 +205,7 @@ public class ModEvents {
                     }
                 }
 
-                // C. SPRINT 2 FIX: Acumulador de práctica de Movilidad por distancia a pie
+                // C. Acumulador de práctica de Movilidad por distancia a pie
                 if (player instanceof ServerPlayer serverPlayer) {
                     CompoundTag data = serverPlayer.getPersistentData();
 
@@ -229,8 +224,6 @@ public class ModEvents {
                     double dz = currentZ - lastZ;
                     double distSq = dx * dx + dz * dz;
 
-                    // Permite sprint-jumping, escaleras y desniveles.
-                    // Excluye vehículos, vuelo en creativo/espectador y teletransporte (> 16 bloques en 1 tick).
                     boolean isFlying = serverPlayer.getAbilities().flying;
                     boolean isRiding = serverPlayer.isPassenger();
 
@@ -246,7 +239,7 @@ public class ModEvents {
                     data.putDouble("modrpg_last_x", currentX);
                     data.putDouble("modrpg_last_z", currentZ);
 
-                    // D. SPRINT 2 FIX: Emisión de Huella Acústica basada en delta real
+                    // D. Emisión de Huella Acústica basada en delta real
                     if (serverPlayer.tickCount % 10 == 0) {
                         if (serverPlayer.isShiftKeyDown()) {
                             AudioFootprintTracker.emitPing(serverPlayer, AudioFootprintTracker.NoiseCategory.SNEAK);
@@ -277,7 +270,6 @@ public class ModEvents {
                         MacroDirectorManager.tick(serverPlayer);
                         NemesisHordeManager.tryTriggerNemesisRaid(serverPlayer.serverLevel(), serverPlayer);
 
-                        // SPRINT 2 FIX: Sincronizar skills al cliente para actualizar puntos de práctica en el árbol [K]
                         SkillEconomy.syncSkills(serverPlayer);
                     }
                 }
@@ -300,7 +292,7 @@ public class ModEvents {
     }
 
     // =========================================================================
-    // 5. DETECCIÓN ACÚSTICA DE MINERÍA DE BLOQUES DUROS
+    // 5. DETECCIÓN ACÚSTICA DE MINERÍA DE BLOQUES DUROS (SPRINT 4 FIX - C6)
     // =========================================================================
 
     @SubscribeEvent
@@ -313,7 +305,9 @@ public class ModEvents {
                 PlayerVulnerabilityDetector.recordMiningProgress(player);
                 player.getPersistentData().putInt("modrpg_last_mine_tick", player.tickCount);
 
-                if (player.tickCount % 10 == 0) {
+                // C6 FIX: Emitir ping acústico cada 10 ticks reales acumulados de minería
+                int miningTicks = PlayerVulnerabilityDetector.getMiningTicks(player.getUUID());
+                if (miningTicks % 10 == 0) {
                     AudioFootprintTracker.emitPing(player, AudioFootprintTracker.NoiseCategory.MINING);
                 }
             }
@@ -548,6 +542,7 @@ public class ModEvents {
             });
         }
     }
+
     // =========================================================================
     // 10. PROYECTILES DEL JUGADOR
     // =========================================================================
@@ -692,7 +687,17 @@ public class ModEvents {
                 PlayerCombatProfiler.recordMeleeDamage(player, event.getAmount());
             }
 
-            if (livingTarget instanceof Mob mob && mob.getTags().contains(TacticalCasterGoal.TAG_INTERRUPTIBLE)) {
+            // B9 FIX: Identificar golpe cuerpo a cuerpo directo
+            boolean isDirectMelee = event.getSource().getDirectEntity() == player
+                    && !(event.getSource().getDirectEntity() instanceof Projectile)
+                    && !event.getSource().is(DamageTypes.ARROW)
+                    && !event.getSource().is(DamageTypes.MAGIC)
+                    && !event.getSource().is(DamageTypes.INDIRECT_MAGIC)
+                    && !event.getSource().is(DamageTypes.THORNS)
+                    && !event.getSource().is(DamageTypes.EXPLOSION);
+
+            // B9 FIX: Solo golpes cuerpo a cuerpo directos con recarga >= 85% rompen postura (no flechas ni magias)
+            if (isDirectMelee && livingTarget instanceof Mob mob && mob.getTags().contains(TacticalCasterGoal.TAG_INTERRUPTIBLE)) {
                 if (player.getAttackStrengthScale(0.5f) >= 0.85f) {
                     TacticalCasterGoal.interruptCaster(mob, player);
                     player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(s -> {
@@ -728,20 +733,10 @@ public class ModEvents {
                     }
                 }
 
-                // SPRINT 2 FIX: Escalado real de daño Cuerpo a Cuerpo (CaC)
-                // Se aplica a golpes directos con la mano/arma (no flechas, no magia, no explosiones)
-                boolean isDirectMelee = event.getSource().getDirectEntity() == player
-                        && !(event.getSource().getDirectEntity() instanceof Projectile)
-                        && !event.getSource().is(DamageTypes.ARROW)
-                        && !event.getSource().is(DamageTypes.MAGIC)
-                        && !event.getSource().is(DamageTypes.INDIRECT_MAGIC)
-                        && !event.getSource().is(DamageTypes.THORNS)
-                        && !event.getSource().is(DamageTypes.EXPLOSION);
-
+                // Escalado lineal estricto de daño Cuerpo a Cuerpo (+2% por nivel)
                 if (isDirectMelee) {
                     int meleeLvl = skills.getBranchLevel(SkillRegistry.BRANCH_MELEE);
                     if (meleeLvl > 0) {
-                        // Progresión lineal estricta: +2% por nivel (+100% a nivel 50, +200% a nivel 100)
                         float meleeMultiplier = 1.0f + (meleeLvl * 0.02f);
                         event.setAmount(event.getAmount() * meleeMultiplier);
                     }
@@ -760,6 +755,17 @@ public class ModEvents {
         // D. SI EL JUGADOR ES LA VÍCTIMA
         // ---------------------------------------------------------------------
         if (target instanceof ServerPlayer victim) {
+            // B9 FIX: Si el atacante descargó un ataque imbloqueable rojo y el jugador intenta bloquearlo con escudo
+            if (attacker instanceof Mob mob && mob.getTags().contains(TacticalCasterGoal.TAG_RED_UNBLOCKABLE)) {
+                if (victim.isBlocking()) {
+                    victim.disableShield(true);
+                    victim.stopUsingItem();
+                    victim.level().playSound(null, victim.getX(), victim.getY(), victim.getZ(),
+                            SoundEvents.SHIELD_BREAK, SoundSource.PLAYERS, 1.4f, 0.8f);
+                    victim.displayClientMessage(Component.literal("§4§l⚡ ¡ATAQUE IMBLOQUEABLE! §c(Escudo desactivado por 5s)"), true);
+                }
+            }
+
             if (victim.isBlocking()) {
                 PlayerCombatProfiler.recordShieldBlock(victim);
             }
@@ -784,10 +790,6 @@ public class ModEvents {
             });
         }
     }
-
-    // =========================================================================
-    // 12. GENERACIÓN DE ENTIDADES: Inicialización Táctica
-    // =========================================================================
 
     // =========================================================================
     // 12. GENERACIÓN DE ENTIDADES: Inicialización Táctica
@@ -818,5 +820,4 @@ public class ModEvents {
             EnemyRpgManager.tryInitializeMob(monster);
         }
     }
-
 }

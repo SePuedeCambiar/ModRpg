@@ -5,6 +5,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.monster.Enemy;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
@@ -17,17 +18,19 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Gestor Maestro de Ritmo y Tensión (Inspirado en Alien: Isolation).
- * SPRINT 4 FIX:
- * - Waypoints de acecho (SHADOW_STALK) anclados a cavidades de aire reales en cuevas.
- * - Punto de estrangulamiento (CUTOFF_CHOKE) proyectado a la boca real del túnel.
- * - Reconocimiento de todas las amenazas hostiles del juego (Enemy.class).
- * - Ruptura reactiva de la fase de Respiro ante agresiones sorpresivas.
+ * SPRINT 4 FIX (C1, C3, C4):
+ * - CLIMAX_TIMEOUT_TICKS: Timeout duro de 90s para evitar softlocks de combate.
+ * - shouldBreakReprieve: El estrés residual alto ya no rompe la tregua de respiro.
+ * - hasNearbyHostiles: Solo cuenta hostiles con target activo en el jugador.
  */
 public class MacroDirectorManager {
 
+    // C4 FIX: Timeout duro absoluto de 90 segundos para salir de CLIMAX
+    public static final int CLIMAX_TIMEOUT_TICKS = 1800;
+
     public static class PacingData {
         private DirectorState state = DirectorState.BUILD_UP;
-        private int stateTimer = 0; // Temporizador para el período de respiro o emboscada
+        private int stateTimer = 0;
         private DirectorWhisper activeWhisper = null;
         private int climaxCombatTimer = 0;
 
@@ -47,6 +50,10 @@ public class MacroDirectorManager {
 
     private static final Map<UUID, PacingData> PLAYER_PACING_MAP = new ConcurrentHashMap<>();
 
+    public static void clearAll() {
+        PLAYER_PACING_MAP.clear();
+    }
+
     public static PacingData getPacingData(UUID playerUUID) {
         return PLAYER_PACING_MAP.computeIfAbsent(playerUUID, k -> new PacingData());
     }
@@ -61,18 +68,21 @@ public class MacroDirectorManager {
         return (data != null) ? data.getActiveWhisper() : null;
     }
 
-    /**
-     * Fuerza la entrada en modo Respiro tras un combate intenso o la muerte de un líder.
-     */
     public static void forceTriggerReprieve(UUID playerUUID, int durationTicks) {
         PacingData data = getPacingData(playerUUID);
         data.setState(DirectorState.REPRIEVE, durationTicks);
         data.setWhisper(null);
     }
 
-    /**
-     * Ciclo principal del Macro-Director ejecutado cada segundo (20 ticks).
-     */
+    // C3 FIX: Regla formal para saber si el respiro debe romperse (exige daño hostil reciente)
+    public static boolean shouldBreakReprieve(boolean hasCloseCombat, int ticksSinceLastDamage, float stress) {
+        if (hasCloseCombat) return true;
+        // Solo romper si hubo daño directo recibido en los últimos 2s (40 ticks) y estrés alto
+        if (ticksSinceLastDamage < 40 && stress >= 0.70f) return true;
+        // Estrés residual alto sin combate activo NO rompe la tregua
+        return false;
+    }
+
     public static void tick(ServerPlayer player) {
         if (player == null || !player.isAlive()) return;
 
@@ -81,25 +91,23 @@ public class MacroDirectorManager {
         float stress = PlayerStressTracker.getStress(player);
         var vulnerabilities = PlayerVulnerabilityDetector.getActiveVulnerabilities(player);
 
-        // Sincronización temporal con el reloj del servidor
         int currentTick = (int) (player.serverLevel().getGameTime() & 0x7FFFFFFF);
 
-        // Limpieza de susurro expirado
         if (pacing.activeWhisper != null && pacing.activeWhisper.isExpired(currentTick)) {
             pacing.setWhisper(null);
         }
 
-        // =========================================================================
-        // MÁQUINA DE ESTADOS DEL RITMO
-        // =========================================================================
         switch (pacing.getState()) {
 
-            // 1. FASE DE RESPIRO: El Director retiene las hordas
+            // 1. FASE DE RESPIRO
             case REPRIEVE -> {
                 pacing.stateTimer -= 20;
 
-                // SPRINT 4 FIX: Salida de emergencia si el jugador entra en combate durante la tregua
-                if (hasNearbyHostiles(player, 8.0) || stress >= 0.70f) {
+                PlayerStressTracker.StressData stressData = PlayerStressTracker.getData(uuid);
+                boolean closeCombat = hasNearbyHostiles(player, 8.0);
+
+                // C3 FIX: No romper la tregua por el estrés residual con el que termina un combate
+                if (shouldBreakReprieve(closeCombat, stressData.getTicksSinceLastDamage(), stress)) {
                     pacing.setState(DirectorState.CLIMAX, 0);
                     pacing.climaxCombatTimer = 0;
                     return;
@@ -110,33 +118,29 @@ public class MacroDirectorManager {
                 }
             }
 
-            // 2. FASE DE ACECHO EN SOMBRAS: Generar pistas e investigar
+            // 2. FASE DE ACECHO EN SOMBRAS
             case BUILD_UP -> {
-                // Comprobar si el jugador hizo ruido reciente
                 var ping = AudioFootprintTracker.findHeardPing(player.position(), 24.0);
-                if (ping != null) {
+                if (ping != null && (currentTick - ping.tickCreated() <= 60)) {
                     pacing.setWhisper(new DirectorWhisper(
                             uuid, ping.position(), DirectorWhisper.WhisperType.INVESTIGATE_NOISE, currentTick
                     ));
                 } else if (pacing.activeWhisper == null) {
-                    // SPRINT 4 FIX: Waypoint en cavidad de aire real (no dentro de roca maciza)
                     Vec3 stalkPos = calculateShadowStalkWaypoint(player);
                     pacing.setWhisper(new DirectorWhisper(
                             uuid, stalkPos, DirectorWhisper.WhisperType.SHADOW_STALK, currentTick
                     ));
                 }
 
-                // Transición a Emboscada si hay vulnerabilidad activa O estrés elevado
                 if (!vulnerabilities.isEmpty() || stress >= 0.70f) {
-                    pacing.setState(DirectorState.AMBUSH_READY, 60); // 3 segundos de preparación
+                    pacing.setState(DirectorState.AMBUSH_READY, 60);
                 }
             }
 
-            // 3. FASE DE EMBOSCADA PREPARADA: Cortar salidas
+            // 3. FASE DE EMBOSCADA PREPARADA
             case AMBUSH_READY -> {
                 pacing.stateTimer -= 20;
 
-                // SPRINT 4 FIX: Bloquear la boca real del túnel, no los pies del jugador
                 if (vulnerabilities.contains(PlayerVulnerabilityDetector.VulnerabilityType.CORNERED_CHOKE)) {
                     Vec3 exitBlock = calculateChokeExit(player);
                     pacing.setWhisper(new DirectorWhisper(
@@ -144,36 +148,36 @@ public class MacroDirectorManager {
                     ));
                 }
 
-                // Si el temporizador llega a cero o el jugador está a menos de 8 bloques de hostiles -> CLÍMAX
                 if (pacing.stateTimer <= 0 || hasNearbyHostiles(player, 8.0)) {
                     pacing.setState(DirectorState.CLIMAX, 0);
                     pacing.climaxCombatTimer = 0;
                 }
             }
 
-            // 4. FASE DE CLÍMAX: Combate activo F.E.A.R.
+            // 4. FASE DE CLÍMAX
             case CLIMAX -> {
                 pacing.climaxCombatTimer += 20;
 
-                // Condición de Victoria: Si no quedan hostiles a 20 bloques tras 5 segundos de combate
+                // Condición de Victoria: Sin hostiles atacando tras 5s
                 if (!hasNearbyHostiles(player, 20.0) && pacing.climaxCombatTimer >= 100) {
-                    forceTriggerReprieve(uuid, 1200); // 60 segundos de Respiro garantizados
+                    forceTriggerReprieve(uuid, 1200);
                     return;
                 }
 
-                // Condición de Piedad (Fail-Safe): Si el combate dura más de 90 segundos o estrés extremo persistente
+                // C4 FIX: Timeout duro para evitar softlocks eternos por mobs neutros o granjas
+                if (pacing.climaxCombatTimer >= CLIMAX_TIMEOUT_TICKS) {
+                    forceTriggerReprieve(uuid, 1200);
+                    return;
+                }
+
+                // Condición de Piedad por estrés extremo
                 if (stress >= 0.95f && pacing.climaxCombatTimer > 900) {
-                    forceTriggerReprieve(uuid, 800); // 40 segundos de tregua forzada
+                    forceTriggerReprieve(uuid, 800);
                 }
             }
         }
     }
 
-    /**
-     * SPRINT 4 FIX: Calcula un waypoint de acecho seguro en 3D.
-     * Busca aire transitable detrás del jugador. Si la espalda está pegada a una pared,
-     * proyecta a los flancos laterales en vez de dejar el waypoint dentro de la roca.
-     */
     private static Vec3 calculateShadowStalkWaypoint(ServerPlayer player) {
         Level level = player.level();
         Vec3 look = player.getLookAngle();
@@ -184,7 +188,6 @@ public class MacroDirectorManager {
 
         BlockPos playerPos = player.blockPosition();
 
-        // 1. Probar distancias hacia atrás desde 12 hasta 4 bloques
         for (int dist = 12; dist >= 4; dist -= 2) {
             Vec3 behind = player.position().subtract(horizontalLook.scale(dist));
             BlockPos targetPos = new BlockPos((int) Math.floor(behind.x), playerPos.getY(), (int) Math.floor(behind.z));
@@ -195,7 +198,6 @@ public class MacroDirectorManager {
             }
         }
 
-        // 2. Si la espalda está totalmente pegada a la pared de roca, probar en los flancos laterales (90°)
         for (int side : new int[]{1, -1}) {
             Vec3 perp = new Vec3(-horizontalLook.z * side, 0, horizontalLook.x * side).normalize();
             Vec3 lateral = player.position().add(perp.scale(8.0));
@@ -210,10 +212,6 @@ public class MacroDirectorManager {
         return player.position();
     }
 
-    /**
-     * SPRINT 4 FIX: Proyecta a lo largo del túnel ciego hacia afuera (hasta 14 bloques)
-     * buscando la boca de la cueva o la habitación abierta para colocar la barricada.
-     */
     private static Vec3 calculateChokeExit(ServerPlayer player) {
         Level level = player.level();
         BlockPos feet = player.blockPosition();
@@ -228,7 +226,6 @@ public class MacroDirectorManager {
             }
         }
 
-        // Si encontramos la dirección por donde sale el túnel, proyectar hacia la boca exterior
         if (exitDir != null) {
             BlockPos lastValid = feet.relative(exitDir);
 
@@ -237,14 +234,12 @@ public class MacroDirectorManager {
                 BlockPos nextHead = nextFeet.above();
                 BlockPos nextFloor = nextFeet.below();
 
-                // Si el túnel sigue abierto y transitable
                 if (!level.getBlockState(nextFeet).blocksMotion()
                         && !level.getBlockState(nextHead).blocksMotion()
                         && level.getBlockState(nextFloor).blocksMotion()) {
 
                     lastValid = nextFeet;
 
-                    // Si encontramos una apertura lateral amplia, es la entrada real del túnel
                     Direction left = exitDir.getClockWise();
                     Direction right = exitDir.getCounterClockWise();
                     if (!level.getBlockState(nextFeet.relative(left)).blocksMotion()
@@ -277,14 +272,13 @@ public class MacroDirectorManager {
         return null;
     }
 
-    /**
-     * SPRINT 4 FIX: Consulta usando Enemy.class para incluir Slimes, Ghasts, Phantoms y Magma Cubes.
-     */
+    // C4 FIX: Solo cuenta entidades hostiles que tengan al jugador en su mira
     private static boolean hasNearbyHostiles(ServerPlayer player, double radius) {
         AABB box = player.getBoundingBox().inflate(radius);
         List<LivingEntity> enemies = player.serverLevel().getEntitiesOfClass(
                 LivingEntity.class, box,
                 e -> e instanceof Enemy && e.isAlive() && !MinionHelper.areAllies(player, e)
+                        && (e instanceof Mob mob && mob.getTarget() == player)
         );
         return !enemies.isEmpty();
     }

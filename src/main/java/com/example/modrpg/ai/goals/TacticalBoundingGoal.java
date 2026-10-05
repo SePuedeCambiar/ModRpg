@@ -22,16 +22,23 @@ import java.util.EnumSet;
  * Mientras la vanguardia acorta distancias, el tirador de apoyo adquiere el SuppressionToken
  * para saturar la posición del jugador con ráfagas rápidas de 3 disparos,
  * obligándolo a resguardarse detrás de muros.
+ *
+ * SPRINT 1 FIX: requiresUpdateEveryTick() = true.
+ * SPRINT 3 FIX: Limpieza atómica del token y cooldown sellado con GameTime.
+ * SPRINT 4 FIX (C8): Regla de Piedad (pausa de 2 segundos si el objetivo cae a <= 6.0 HP).
  */
 public class TacticalBoundingGoal extends Goal {
 
     private final Mob mob;
     private final EnemyArchetype archetype;
 
-    // SPRINT 3 FIX: En lugar de un contador que nunca decrementaba en idle, usamos GameTime
     private long lastSuppressionGameTime = -1000L;
     private int burstShotsRemaining = 0;
     private int burstDelayTicks = 0;
+
+    // SPRINT 4 FIX (C8): Campos de la Regla de Piedad
+    private int mercyCooldown = 0;
+    private int mercyPauseTicks = 0;
 
     public TacticalBoundingGoal(Mob mob, EnemyArchetype archetype) {
         this.mob = mob;
@@ -40,11 +47,16 @@ public class TacticalBoundingGoal extends Goal {
     }
 
     @Override
-    public boolean canUse() {
-        if (archetype.isAggressiveRush() || mob.isPassenger()) return false;
+    public boolean requiresUpdateEveryTick() {
+        return true;
+    }
 
-        // No suprimir si el mob está aturdido
-        if (mob.getTags().contains("modrpg_staggered")) return false;
+    @Override
+    public boolean canUse() {
+        if (archetype != null && archetype.isAggressiveRush() || mob.isPassenger()) return false;
+
+        // No suprimir si el mob está aturdido o en pausa de piedad
+        if (mob.getTags().contains("modrpg_staggered") || mercyPauseTicks > 0) return false;
 
         // Cooldown de 6 segundos (120 ticks) entre ráfagas completas
         long currentTick = mob.level().getGameTime();
@@ -73,27 +85,21 @@ public class TacticalBoundingGoal extends Goal {
                 && target != null
                 && target.isAlive()
                 && !mob.getTags().contains("modrpg_staggered")
-                && mob.getSensing().hasLineOfSight(target);
-    }
-
-    @Override
-    public boolean requiresUpdateEveryTick() {
-        return true;
+                && mob.getSensing().hasLineOfSight(target)
+                && mercyPauseTicks <= 0;
     }
 
     @Override
     public void start() {
         this.burstShotsRemaining = 3; // Ráfaga de 3 disparos
         this.burstDelayTicks = 4;     // Tiempo de apuntado inicial antes del primer tiro
+        this.mercyPauseTicks = 0;
 
         if (mob.level() instanceof ServerLevel level) {
             SquadBarkManager.triggerBark(mob, SquadBarkManager.BarkType.SUPPRESSION_CALL, level);
         }
     }
 
-    /**
-     * SPRINT 3 FIX: Limpieza atómica del token y sellado de cooldown al finalizar o abortar la ráfaga.
-     */
     @Override
     public void stop() {
         this.burstShotsRemaining = 0;
@@ -112,6 +118,23 @@ public class TacticalBoundingGoal extends Goal {
         if (target == null || burstShotsRemaining <= 0) return;
 
         mob.getLookControl().setLookAt(target, 30.0f, 30.0f);
+
+        // SPRINT 4 FIX (C8): Regla de piedad a <= 3 corazones (6.0 HP)
+        if (target.getHealth() <= 6.0f && mercyCooldown <= 0 && mercyPauseTicks <= 0) {
+            mercyPauseTicks = 40; // Pausa de 2 segundos sin disparar
+            mercyCooldown = 240;  // Cooldown de 12 segundos antes de volver a activarse
+            burstShotsRemaining = 0;
+            return;
+        }
+
+        if (mercyPauseTicks > 0) {
+            mercyPauseTicks--;
+            return;
+        }
+
+        if (mercyCooldown > 0) {
+            mercyCooldown--;
+        }
 
         if (burstDelayTicks > 0) {
             burstDelayTicks--;

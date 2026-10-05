@@ -79,18 +79,16 @@ public class ElementalReactionManager {
         boolean matchFireHoly       = (e1 == SpellElement.FIRE && e2 == SpellElement.HOLY) || (e1 == SpellElement.HOLY && e2 == SpellElement.FIRE);
         boolean matchFrostVoid      = (e1 == SpellElement.FROST && e2 == SpellElement.VOID) || (e1 == SpellElement.VOID && e2 == SpellElement.FROST);
 
-        // =========================================================================
+        // =========================================================================// =========================================================================
         // 1. REACCIÓN: SUPERCONDUCTOR (Hielo + Rayo)
-        // Detonación radial que debilita fuertemente la defensa física de los enemigos
-        // =========================================================================
         if (matchFrostLightning) {
             float reactionDamage = 14.0f;
             AABB zone = victim.getBoundingBox().inflate(5.0);
-            List<LivingEntity> enemies = level.getEntitiesOfClass(LivingEntity.class, zone, e -> e != caster && e.isAlive());
+            List<LivingEntity> enemies = level.getEntitiesOfClass(LivingEntity.class, zone, e -> CraftedSpell.canHarmTarget(caster, e));
 
             for (LivingEntity e : enemies) {
                 e.hurt(reactionSource, reactionDamage);
-                e.addEffect(new MobEffectInstance(MobEffects.WEAKNESS, 120, 1)); // Debilidad II por 6s
+                e.addEffect(new MobEffectInstance(MobEffects.WEAKNESS, 120, 1));
                 level.sendParticles(ParticleTypes.ELECTRIC_SPARK, e.getX(), e.getY() + 1.0, e.getZ(), 15, 0.3, 0.3, 0.3, 0.1);
             }
 
@@ -101,17 +99,13 @@ public class ElementalReactionManager {
             return true;
         }
 
-        // =========================================================================
         // 2. REACCIÓN: COLAPSO GRAVITATORIO (Fuego + Vacío)
-        // Vórtice cinético que atrae a los enemigos hacia el centro y los quema
-        // =========================================================================
         if (matchFireVoid) {
             Vec3 center = victim.position();
             AABB zone = victim.getBoundingBox().inflate(6.0);
-            List<LivingEntity> enemies = level.getEntitiesOfClass(LivingEntity.class, zone, e -> e != caster && e.isAlive());
+            List<LivingEntity> enemies = level.getEntitiesOfClass(LivingEntity.class, zone, e -> CraftedSpell.canHarmTarget(caster, e));
 
             for (LivingEntity e : enemies) {
-                // Vector de atracción hacia el punto de colapso
                 Vec3 toCenter = center.subtract(e.position()).normalize().scale(0.85);
                 e.setDeltaMovement(new Vec3(toCenter.x, 0.35, toCenter.z));
                 e.hurtMarked = true;
@@ -126,7 +120,6 @@ public class ElementalReactionManager {
             notifyPlayer(caster, "§5🌌 ¡COLAPSO GRAVITATORIO! §f(Enemigos absorbidos)");
             return true;
         }
-
         // =========================================================================
         // 3. REACCIÓN: PIRA PURIFICADORA (Fuego + Sagrado)
         // Daño masivo a no-muertos, ignición prolongada y pulso sanador al lanzador

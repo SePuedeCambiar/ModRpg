@@ -1,5 +1,6 @@
 package com.example.modrpg.skills.magic.modular;
 
+import com.example.modrpg.skills.nodes.magic.MinionHelper;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
@@ -7,6 +8,8 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.Mob;
+import net.minecraft.world.entity.monster.Enemy;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.HitResult;
@@ -60,6 +63,43 @@ public class CraftedSpell {
         return Math.max(5, (int) (base * shapeMod * timeMod));
     }
 
+    // =========================================================================
+    // B2 FIX: FILTRO DE FUEGO AMIGO UNIFICADO PARA HECHIZOS
+    // =========================================================================
+    public static boolean canHarmTarget(LivingEntity caster, LivingEntity target) {
+        if (target == null || caster == null || target == caster) return false;
+        if (!target.isAlive() || target.isSpectator()) return false;
+
+        // Si el lanzador es hostil (Enemy):
+        if (caster instanceof Enemy) {
+            // Esbirros aliados del jugador SÍ pueden ser dañados por enemigos
+            if (target.getTags().contains(MinionHelper.TAG_MINION)) {
+                return true;
+            }
+            // Mobs hostiles no se dañan entre sí (anula fuego amigo en escuadrón)
+            if (target instanceof Enemy) {
+                return false;
+            }
+        }
+
+        // Si el lanzador es jugador o esbirro aliado
+        if (MinionHelper.areAllies(caster, target)) {
+            return false;
+        }
+
+        return !target.isAlliedTo(caster);
+    }
+
+    // =========================================================================
+    // B7 FIX: CENTRADO DE GROUND_AOE SOBRE EL OBJETIVO PARA MOBS
+    // =========================================================================
+    public static Vec3 calculateGroundAoeCenter(LivingEntity caster, Vec3 look) {
+        if (caster instanceof Mob mob && mob.getTarget() != null) {
+            return mob.getTarget().position();
+        }
+        return caster.position().add(look.scale(5.0));
+    }
+
     public void cast(LivingEntity caster, Vec3 look) {
         ServerLevel level = (ServerLevel) caster.level();
         float damage = calculateDamage(caster);
@@ -75,16 +115,11 @@ public class CraftedSpell {
                 level.addFreshEntity(proj);
             }
 
-            // =========================================================================
-            // SPRINT 3 FIX (Bug C-07): Raycast contra bloques sólidos
-            // El rayo ya no atraviesa paredes, montañas ni coberturas de escuadrones
-            // =========================================================================
             case BEAM -> {
                 Vec3 eyePos = caster.getEyePosition();
                 double maxDistance = 16.0;
                 Vec3 endPos = eyePos.add(look.scale(maxDistance));
 
-                // 1. Comprobar colisión contra bloques del mundo
                 HitResult blockHit = level.clip(new ClipContext(
                         eyePos, endPos,
                         ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, caster
@@ -93,13 +128,11 @@ public class CraftedSpell {
                 double actualDistance = maxDistance;
                 if (blockHit.getType() == HitResult.Type.BLOCK) {
                     actualDistance = eyePos.distanceTo(blockHit.getLocation());
-                    // Partículas de impacto en la pared
                     level.sendParticles(element.getParticle(),
                             blockHit.getLocation().x, blockHit.getLocation().y, blockHit.getLocation().z,
                             12, 0.15, 0.15, 0.15, 0.05);
                 }
 
-                // 2. Trazar el haz visual y aplicar daño sin traspasar el punto de impacto
                 Set<LivingEntity> hitEnemies = new HashSet<>();
                 int steps = (int) Math.ceil(actualDistance);
 
@@ -113,7 +146,7 @@ public class CraftedSpell {
 
                     List<LivingEntity> enemies = level.getEntitiesOfClass(
                             LivingEntity.class, box,
-                            e -> e != caster && e.isAlive() && !e.isAlliedTo(caster) && !hitEnemies.contains(e)
+                            e -> canHarmTarget(caster, e) && !hitEnemies.contains(e)
                     );
 
                     for (LivingEntity e : enemies) {
@@ -125,7 +158,7 @@ public class CraftedSpell {
             }
 
             case GROUND_AOE -> {
-                Vec3 groundPos = caster.position().add(look.scale(5.0));
+                Vec3 groundPos = calculateGroundAoeCenter(caster, look);
                 AABB area = new AABB(groundPos.x - 3.0, groundPos.y - 1.0, groundPos.z - 3.0,
                         groundPos.x + 3.0, groundPos.y + 2.0, groundPos.z + 3.0);
 
@@ -133,7 +166,7 @@ public class CraftedSpell {
 
                 List<LivingEntity> targets = level.getEntitiesOfClass(
                         LivingEntity.class, area,
-                        e -> e != caster && e.isAlive() && !e.isAlliedTo(caster)
+                        e -> canHarmTarget(caster, e)
                 );
                 for (LivingEntity t : targets) {
                     t.hurt(magicSource, damage);
@@ -151,7 +184,7 @@ public class CraftedSpell {
 
                 List<LivingEntity> nearby = level.getEntitiesOfClass(
                         LivingEntity.class, auraBox,
-                        e -> e != caster && e.isAlive() && !e.isAlliedTo(caster)
+                        e -> canHarmTarget(caster, e)
                 );
                 for (LivingEntity e : nearby) {
                     e.hurt(magicSource, damage);
@@ -166,7 +199,7 @@ public class CraftedSpell {
 
                 List<LivingEntity> hit = level.getEntitiesOfClass(
                         LivingEntity.class, touchBox,
-                        e -> e != caster && e.isAlive() && !e.isAlliedTo(caster)
+                        e -> canHarmTarget(caster, e)
                 );
                 if (!hit.isEmpty()) {
                     LivingEntity victim = hit.get(0);

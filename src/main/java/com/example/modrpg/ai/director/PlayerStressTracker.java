@@ -1,9 +1,12 @@
 package com.example.modrpg.ai.director;
 
 import com.example.modrpg.skills.PlayerSkillsProvider;
+import com.example.modrpg.skills.nodes.magic.MinionHelper;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.entity.monster.Monster;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.monster.Enemy;
+import net.minecraft.world.level.LightLayer;
 import net.minecraft.world.phys.AABB;
 
 import java.util.List;
@@ -13,7 +16,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Gestiona el Medidor de Estrés S(t) in-memory para cada jugador en el servidor.
- * Se actualiza 1 vez cada 20 ticks (1 segundo) para garantizar cero lag.
+ * SPRINT 4 FIX (C7): Luz nocturna real (skyDarken) y proximidad hostil libre de esbirros aliados.
  */
 public class PlayerStressTracker {
 
@@ -37,7 +40,7 @@ public class PlayerStressTracker {
     }
 
     public static class StressData {
-        private float currentStress = 0.10f; // Empieza con una tensión base de 10%
+        private float currentStress = 0.10f;
         private int ticksSinceLastDamage = 200;
 
         public float getStress() { return currentStress; }
@@ -60,6 +63,10 @@ public class PlayerStressTracker {
                 ticksSinceLastDamage += 20;
             }
         }
+
+        public int getTicksSinceLastDamage() {
+            return ticksSinceLastDamage;
+        }
     }
 
     private static final Map<UUID, StressData> PLAYER_STRESS_MAP = new ConcurrentHashMap<>();
@@ -80,13 +87,16 @@ public class PlayerStressTracker {
     }
 
     public static void onPlayerDamaged(ServerPlayer player, float damageAmount) {
-        if (player == null || player.level().isClientSide()) return;
+        if (player == null || player.level().isClientSide() || damageAmount <= 0.5f) return;
         getData(player.getUUID()).recordDamage();
     }
 
-    /**
-     * Ciclo de evaluación ejecutado cada segundo (20 ticks).
-     */
+    // C7 FIX: Calcula la luz efectiva real restando skyDarken a cielo abierto
+    public static int calculateTrueLight(int blockLight, int skyLight, int skyDarken) {
+        int effectiveSky = Math.max(0, skyLight - skyDarken);
+        return Math.max(blockLight, effectiveSky);
+    }
+
     public static void tick(ServerPlayer player) {
         if (player == null || !player.isAlive()) return;
 
@@ -111,9 +121,12 @@ public class PlayerStressTracker {
             }
         }
 
-        // 3. Nivel de luz y profundidad opresiva
+        // 3. Nivel de luz real considerando la noche y profundidad
         BlockPos playerPos = player.blockPosition();
-        int lightLevel = player.level().getRawBrightness(playerPos, 0);
+        int blockLight = player.level().getBrightness(LightLayer.BLOCK, playerPos);
+        int skyLight = player.level().getBrightness(LightLayer.SKY, playerPos);
+        int skyDarken = player.level().getSkyDarken();
+        int lightLevel = calculateTrueLight(blockLight, skyLight, skyDarken);
 
         if (lightLevel <= 4) {
             deltaThisSecond += StressStimulus.DARKNESS.getDeltaPerSecond();
@@ -122,16 +135,17 @@ public class PlayerStressTracker {
             deltaThisSecond += StressStimulus.DEEP_CAVE.getDeltaPerSecond();
         }
 
-        // 4. Proximidad de Monstruos Hostiles
+        // 4. Proximidad de Monstruos Hostiles (Excluyendo esbirros aliados)
         AABB scanZone = player.getBoundingBox().inflate(15.0);
-        List<Monster> nearbyMonsters = player.serverLevel().getEntitiesOfClass(
-                Monster.class, scanZone, Monster::isAlive
+        List<LivingEntity> nearbyMonsters = player.serverLevel().getEntitiesOfClass(
+                LivingEntity.class, scanZone,
+                e -> e instanceof Enemy && e.isAlive() && !MinionHelper.areAllies(player, e)
         );
 
         boolean hasCloseHostile = false;
-        for (Monster monster : nearbyMonsters) {
+        for (LivingEntity monster : nearbyMonsters) {
             double distSq = player.distanceToSqr(monster);
-            if (distSq < 36.0) { // Menos de 6 bloques
+            if (distSq < 36.0) {
                 hasCloseHostile = true;
                 break;
             }
@@ -144,17 +158,14 @@ public class PlayerStressTracker {
         }
 
         // 5. Factores de Alivio y Relajación (Decay)
-        if (nearbyMonsters.isEmpty() && data.ticksSinceLastDamage >= 100) {
+        if (nearbyMonsters.isEmpty() && data.getTicksSinceLastDamage() >= 100) {
             if (lightLevel >= 12) {
-                // Zona segura iluminada / Base
                 deltaThisSecond += StressStimulus.DECAY_SAFE_ZONE.getDeltaPerSecond();
             } else {
-                // Relajación natural fuera de peligro
                 deltaThisSecond += StressStimulus.DECAY_PEACEFUL.getDeltaPerSecond();
             }
         }
 
-        // Aplicar cambio
         data.modify(deltaThisSecond);
     }
 

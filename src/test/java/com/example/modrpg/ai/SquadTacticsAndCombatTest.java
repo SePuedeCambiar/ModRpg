@@ -49,7 +49,8 @@ class SquadTacticsAndCombatTest {
     @DisplayName("B6: TacticalCasterGoal.start() debe preservar cooldowns de habilidades largas en lugar de resetearlos a 60")
     void testCasterGoalMustPreserveSkillCooldownsOnStart() throws Exception {
         CraftedSpell dummySpell = new CraftedSpell("Test", SpellElement.FIRE, SpellShape.PROJECTILE, SpellTiming.BALANCED, 1);
-        TacticalCasterGoal goal = new TacticalCasterGoal(null, EnemyArchetype.FLAME_JUGGERNAUT, dummySpell);
+
+        TacticalCasterGoal goal = new TacticalCasterGoal(null, null, dummySpell);
 
         Field skillCdField = TacticalCasterGoal.class.getDeclaredField("specialSkillCooldownTicks");
         skillCdField.setAccessible(true);

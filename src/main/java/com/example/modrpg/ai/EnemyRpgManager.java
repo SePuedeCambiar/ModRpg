@@ -35,8 +35,14 @@ import java.util.List;
  * 3. Purga metas vanilla DESPUÉS de equipar para anular reassessWeaponGoal() (Fix B1).
  * 4. Asigna miembros a escuadrones coordinados (SquadCoordinator) incluso tras recargas de chunk.
  * 5. Inyecta la jerarquía integrada de metas: F.E.A.R. + Alien: Isolation Director.
+ * 6. SPRINT 3 FIX (B5): Restringe el flanqueo exclusivamente a la Tejedora del Vacío (VOID_WEAVER).
  */
 public class EnemyRpgManager {
+
+    // SPRINT 3 FIX (Bug B5): Selector estricto de flanqueadores
+    public static boolean shouldEquipFlankGoal(EnemyArchetype archetype) {
+        return archetype == EnemyArchetype.VOID_WEAVER;
+    }
 
     public static final String TAG_INITIALIZED = "modrpg_enemy_initialized";
     public static final String TAG_CASTER = "modrpg_enemy_caster";
@@ -91,7 +97,7 @@ public class EnemyRpgManager {
             mob.getPersistentData().putString(TAG_ARCHETYPE, selectedArchetype.name());
             mob.getPersistentData().putInt(TAG_SPELL_LEVEL, spellPowerLevel);
 
-            // SPRINT 1 FIX (B1): Equipar al mob PRIMERO (esto puede disparar reassessWeaponGoal en esqueletos)
+            // SPRINT 1 FIX (B1): Equipar al mob PRIMERO (esto dispara reassessWeaponGoal en esqueletos)
             applyVisualsAndEquipment(mob, selectedArchetype);
 
         } else {
@@ -194,7 +200,7 @@ public class EnemyRpgManager {
 
         CraftedSpell spell = selectedArchetype.buildSpell(spellPowerLevel);
 
-        // Inyección idempotente de metas de IA
+        // Inyección ordenada de metas de IA
         if (selectedArchetype.isAggressiveRush()) {
             mob.goalSelector.addGoal(1, new TacticalPeelGoal(mob, selectedArchetype));
             mob.goalSelector.addGoal(2, new AmbushAssaultGoal(mob, selectedArchetype));
@@ -203,7 +209,10 @@ public class EnemyRpgManager {
             if (selectedArchetype.getMainHandItem() == Items.BOW) {
                 mob.goalSelector.addGoal(4, new TacticalBoundingGoal(mob, selectedArchetype));
             }
-            mob.goalSelector.addGoal(5, new TacticalFlankGoal(mob, selectedArchetype));
+            // SPRINT 3 FIX (Bug B5): Restringir flanqueo exclusivamente a la Tejedora
+            if (shouldEquipFlankGoal(selectedArchetype)) {
+                mob.goalSelector.addGoal(5, new TacticalFlankGoal(mob, selectedArchetype));
+            }
         }
 
         mob.goalSelector.addGoal(6, new TacticalCasterGoal(mob, selectedArchetype, spell));

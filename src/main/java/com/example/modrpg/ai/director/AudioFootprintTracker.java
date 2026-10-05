@@ -12,7 +12,8 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
  * Registra las ondas sonoras generadas por las acciones del jugador.
- * Los monstruos exploradores consultan este búfer para investigar ruidos lejanos.
+ * SPRINT 1 FIX: clearAll() para purga en ServerStoppedEvent.
+ * SPRINT 4 FIX (C1): Retornar el ping más reciente del entorno.
  */
 public class AudioFootprintTracker {
 
@@ -48,9 +49,10 @@ public class AudioFootprintTracker {
 
     private static final Queue<AcousticPing> ACTIVE_PINGS = new ConcurrentLinkedQueue<>();
 
-    /**
-     * Emite un pulso sonoro en el mundo. Si el radio es 0 (Shift), se ignora.
-     */
+    public static void clearAll() {
+        ACTIVE_PINGS.clear();
+    }
+
     public static void emitPing(ServerPlayer player, NoiseCategory category) {
         if (player == null || category == NoiseCategory.SNEAK || category.getHearingRadius() <= 0.0) {
             return;
@@ -66,20 +68,12 @@ public class AudioFootprintTracker {
 
         ACTIVE_PINGS.add(ping);
 
-        // Partícula sutil de vibración sonora en desarrollo/debug
         if (category == NoiseCategory.MINING || category == NoiseCategory.SPELL_CAST) {
             ServerLevel level = player.serverLevel();
             level.sendParticles(ParticleTypes.SCULK_SOUL, player.getX(), player.getY() + 0.1, player.getZ(), 1, 0.1, 0.1, 0.1, 0.01);
         }
     }
 
-    public static void clearAll() {
-        ACTIVE_PINGS.clear();
-    }
-
-    /**
-     * Limpia los pulsos acústicos expirados en cada ciclo del Director.
-     */
     public static void cleanupExpiredPings(int currentTick) {
         Iterator<AcousticPing> iterator = ACTIVE_PINGS.iterator();
         while (iterator.hasNext()) {
@@ -89,18 +83,20 @@ public class AudioFootprintTracker {
         }
     }
 
-    /**
-     * Comprueba si una posición hostil puede escuchar algún ruido reciente en su radio de audición.
-     */
+    // C1 FIX: Devuelve el ping MÁS RECIENTE dentro del radio audible del oyente
     public static AcousticPing findHeardPing(Vec3 listenerPos, double listenerHearingRange) {
+        AcousticPing bestPing = null;
+
         for (AcousticPing ping : ACTIVE_PINGS) {
             double distSq = ping.position().distanceToSqr(listenerPos);
             double effectiveRange = Math.min(ping.category().getHearingRadius(), listenerHearingRange);
 
             if (distSq <= (effectiveRange * effectiveRange)) {
-                return ping;
+                if (bestPing == null || ping.tickCreated() > bestPing.tickCreated()) {
+                    bestPing = ping;
+                }
             }
         }
-        return null;
+        return bestPing;
     }
 }

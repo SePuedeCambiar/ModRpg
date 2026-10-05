@@ -10,6 +10,7 @@ import net.minecraft.world.item.Item;
 import net.minecraft.world.item.Items;
 
 import java.util.Set;
+import java.util.function.Supplier;
 
 public enum EnemyArchetype {
 
@@ -23,8 +24,8 @@ public enum EnemyArchetype {
             7.0,    // Umbral de kiting (si el jugador está a menos de 7 bloques, retrocede)
             false,  // No embiste cuerpo a cuerpo
             0x33EBFF, // Color de armadura: Cian glacial
-            Items.BOW,
-            Set.of(EntityType.SKELETON, EntityType.STRAY)
+            () -> Items.BOW,
+            () -> Set.of(EntityType.SKELETON, EntityType.STRAY)
     ),
 
     FLAME_JUGGERNAUT(
@@ -37,8 +38,8 @@ public enum EnemyArchetype {
             0.0,    // Nunca hace kiting hacia atrás
             true,   // Embiste con agresividad frontal
             0xCC3300, // Color de armadura: Rojo volcánico
-            Items.IRON_AXE,
-            Set.of(EntityType.ZOMBIE, EntityType.HUSK, EntityType.DROWNED)
+            () -> Items.IRON_AXE,
+            () -> Set.of(EntityType.ZOMBIE, EntityType.HUSK, EntityType.DROWNED)
     ),
 
     CRYPT_NECROMANCER(
@@ -51,8 +52,8 @@ public enum EnemyArchetype {
             6.0,
             false,
             0x4B0082, // Color de armadura: Púrpura oscuro abisal
-            Items.BONE,
-            Set.of(EntityType.SKELETON, EntityType.WITHER_SKELETON)
+            () -> Items.BONE,
+            () -> Set.of(EntityType.SKELETON, EntityType.WITHER_SKELETON)
     ),
 
     VOID_WEAVER(
@@ -65,8 +66,8 @@ public enum EnemyArchetype {
             3.5,
             false,
             0x9900CC, // Púrpura brillante
-            Items.ENDER_EYE,
-            Set.of(EntityType.SPIDER, EntityType.CAVE_SPIDER)
+            () -> Items.ENDER_EYE,
+            () -> Set.of(EntityType.SPIDER, EntityType.CAVE_SPIDER)
     ),
 
     STORM_EVOKER(
@@ -79,8 +80,8 @@ public enum EnemyArchetype {
             5.0,
             false,
             0x00E5FF, // Amarillo/Cian eléctrico
-            Items.AMETHYST_SHARD,
-            Set.of(EntityType.WITCH)
+            () -> Items.AMETHYST_SHARD,
+            () -> Set.of(EntityType.WITCH)
     );
 
     private final String displayName;
@@ -92,12 +93,12 @@ public enum EnemyArchetype {
     private final double kitingThresholdDistance;
     private final boolean aggressiveRush;
     private final int armorColor;
-    private final Item mainHandItem;
-    private final Set<EntityType<?>> compatibleEntities;
+    private final Supplier<Item> mainHandItemSupplier;
+    private final Supplier<Set<EntityType<?>>> compatibleEntitiesSupplier;
 
     EnemyArchetype(String displayName, String colorCode, SpellElement element, SpellShape shape, SpellTiming timing,
                    double preferredDistance, double kitingThresholdDistance, boolean aggressiveRush,
-                   int armorColor, Item mainHandItem, Set<EntityType<?>> compatibleEntities) {
+                   int armorColor, Supplier<Item> mainHandItemSupplier, Supplier<Set<EntityType<?>>> compatibleEntitiesSupplier) {
         this.displayName = displayName;
         this.colorCode = colorCode;
         this.element = element;
@@ -107,8 +108,8 @@ public enum EnemyArchetype {
         this.kitingThresholdDistance = kitingThresholdDistance;
         this.aggressiveRush = aggressiveRush;
         this.armorColor = armorColor;
-        this.mainHandItem = mainHandItem;
-        this.compatibleEntities = compatibleEntities;
+        this.mainHandItemSupplier = mainHandItemSupplier;
+        this.compatibleEntitiesSupplier = compatibleEntitiesSupplier;
     }
 
     public String getDisplayName() { return displayName; }
@@ -120,10 +121,10 @@ public enum EnemyArchetype {
     public double getKitingThresholdDistance() { return kitingThresholdDistance; }
     public boolean isAggressiveRush() { return aggressiveRush; }
     public int getArmorColor() { return armorColor; }
-    public Item getMainHandItem() { return mainHandItem; }
+    public Item getMainHandItem() { return mainHandItemSupplier.get(); }
 
     public boolean isCompatibleWith(EntityType<?> type) {
-        return compatibleEntities.contains(type);
+        return compatibleEntitiesSupplier.get().contains(type);
     }
 
     public CraftedSpell buildSpell(int powerLevel) {

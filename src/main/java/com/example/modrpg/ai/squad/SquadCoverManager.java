@@ -16,10 +16,10 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Administra el grafo de coberturas espaciales del escuadrón (F.E.A.R.):
- * SPRINT 4 & 6 FIX:
- * - Evita que en cuevas los casters intenten caminar hacia coberturas detrás de paredes macizas.
- * - Limita los raycasts a un presupuesto estricto para proteger los TPS del servidor.
- * - Purga nodos comprometidos cuando el jugador se desplaza y gana línea de visión sobre ellos.
+ * SPRINT 3 & 4 FIX:
+ * - Time-slicing cada 10 ticks en la limpieza de nodos para proteger los TPS.
+ * - Método público pruneExcessNodes(): poda únicamente los nodos sobrantes en vez de vaciar la lista entera.
+ * - Filtro de obstáculos con raycasts presupuestados y descarte por Dot Product.
  */
 public class SquadCoverManager {
 
@@ -38,15 +38,17 @@ public class SquadCoverManager {
             return;
         }
 
-        // 2. Limpieza de nodos comprometidos: si el jugador se movió y ahora ve la cobertura, purgarla
-        cleanupCompromisedNodes(level, target);
+        // B8 FIX: Time-slicing en la verificación de línea de visión (corre cada 10 ticks, no en cada tick)
+        if (scanCooldown % 10 == 0) {
+            cleanupCompromisedNodes(level, target);
+        }
 
         if (scanCooldown > 0) {
             scanCooldown--;
             return;
         }
 
-        // SPRINT 4 PERF FIX: Si ya existen suficientes coberturas disponibles (>= 4), pausar escaneo 1.5s
+        // Si ya existen suficientes coberturas disponibles (>= 4), pausar escaneo 1.5s
         long availableCount = knownCoverNodes.values().stream().filter(n -> n.isAvailable(null)).count();
         if (availableCount >= 4) {
             scanCooldown = 30; // 1.5 segundos de reposo
@@ -55,7 +57,7 @@ public class SquadCoverManager {
 
         scanCooldown = 25; // Escaneo estándar cada 1.25 segundos
 
-        // 3. Escaneo Time-Sliced centrado en el miembro del escuadrón más cercano a la amenaza
+        // 2. Escaneo centrado en el miembro del escuadrón más cercano a la amenaza
         Mob anchorMember = selectAnchorMember(members, target);
         if (anchorMember != null) {
             scanNearbyObstacles(level, anchorMember.blockPosition(), target);
@@ -63,20 +65,19 @@ public class SquadCoverManager {
     }
 
     /**
-     * SPRINT 4 FIX: Elimina nodos de cobertura si el jugador rodeó el muro y ahora tiene visión directa.
+     * Elimina nodos de cobertura si el jugador rodeó el muro y ahora tiene visión directa.
      */
     private void cleanupCompromisedNodes(ServerLevel level, LivingEntity target) {
         Vec3 targetEye = target.getEyePosition();
         knownCoverNodes.entrySet().removeIf(entry -> {
             CoverNode node = entry.getValue();
-            // Solo comprobar nodos libres para no desorientar abruptamente a un mob que esté llegando
             if (node.isAvailable(null)) {
-                Vec3 standEye = node.getCenterVec().add(0, 1.2, 0);
+                Vec3 standEye = node.getCenterVec().add(0, 1.5, 0);
                 HitResult hit = level.clip(new ClipContext(
                         targetEye, standEye,
                         ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, target
                 ));
-                return hit.getType() != HitResult.Type.BLOCK; // Si el raycast no choca con un muro, el nodo está expuesto
+                return hit.getType() != HitResult.Type.BLOCK;
             }
             return false;
         });
@@ -98,13 +99,12 @@ public class SquadCoverManager {
     }
 
     /**
-     * SPRINT 4 FIX: Escaneo optimizado con límite estricto de 8 raycasts por ciclo
-     * y radio reducido de 8 a 6 bloques (147 candidatos vs 324 originales).
+     * Escaneo de obstáculos con presupuesto estricto de 8 raycasts por ciclo.
      */
     private void scanNearbyObstacles(ServerLevel level, BlockPos origin, LivingEntity target) {
         Vec3 targetEye = target.getEyePosition();
         int searchRadius = 6;
-        int raycastsBudget = 8; // Presupuesto de raycasts por escaneo para proteger TPS
+        int raycastsBudget = 8;
 
         for (int dx = -searchRadius; dx <= searchRadius && raycastsBudget > 0; dx += 2) {
             for (int dz = -searchRadius; dz <= searchRadius && raycastsBudget > 0; dz += 2) {
@@ -112,7 +112,6 @@ public class SquadCoverManager {
                     BlockPos wallCandidate = origin.offset(dx, dy, dz);
                     BlockState wallState = level.getBlockState(wallCandidate);
 
-                    // Muro debe bloquear movimiento y tener al menos 2 bloques de altura
                     if (!wallState.blocksMotion() || !level.getBlockState(wallCandidate.above()).blocksMotion()) {
                         continue;
                     }
@@ -121,7 +120,6 @@ public class SquadCoverManager {
                     double toWallZ = (wallCandidate.getZ() + 0.5) - targetEye.z;
 
                     for (Direction dir : Direction.Plane.HORIZONTAL) {
-                        // Descarte por Dot Product: Solo considerar caras que caen en la sombra opuesta al jugador
                         double dot = (dir.getStepX() * toWallX) + (dir.getStepZ() * toWallZ);
                         if (dot <= 0) continue;
 
@@ -132,7 +130,6 @@ public class SquadCoverManager {
                         BlockState standAbove = level.getBlockState(standPos.above());
                         BlockState standBelow = level.getBlockState(standPos.below());
 
-                        // Comprobar espacio libre para el cuerpo y suelo seguro no inflamable ni líquido
                         if (standState.isAir() && standAbove.isAir() && standBelow.blocksMotion()
                                 && !standBelow.is(Blocks.LAVA)
                                 && !standBelow.is(Blocks.FIRE)
@@ -156,15 +153,29 @@ public class SquadCoverManager {
             }
         }
 
-        // Capacidad máxima de memoria de coberturas (12 nodos relevantes)
+        // B8 FIX: Podar únicamente los nodos sobrantes de forma controlada
+        pruneExcessNodes();
+    }
+
+    /**
+     * B8 FIX: Poda controlada de nodos excedentes.
+     * Si la cantidad de coberturas supera el tope de 12, elimina únicamente los nodos excedentes
+     * que estén libres, dejando la lista acotada a 12 en vez de vaciarla a 0.
+     */
+    public void pruneExcessNodes() {
         if (knownCoverNodes.size() > 12) {
-            knownCoverNodes.entrySet().removeIf(entry -> entry.getValue().isAvailable(null));
+            Iterator<Map.Entry<BlockPos, CoverNode>> it = knownCoverNodes.entrySet().iterator();
+            while (it.hasNext() && knownCoverNodes.size() > 12) {
+                CoverNode node = it.next().getValue();
+                if (node.isAvailable(null)) {
+                    it.remove();
+                }
+            }
         }
     }
 
     /**
-     * SPRINT 4 FIX: Encuentra y reserva la cobertura más cercana validando que sea
-     * físicamente alcanzable y no esté bloqueada al otro lado de una pared de cueva.
+     * Encuentra y reserva la cobertura más cercana validando que sea alcanzable.
      */
     public Vec3 findAndClaimCover(Mob mob, LivingEntity target, double maxDistance) {
         if (knownCoverNodes.isEmpty() || mob == null || !mob.isAlive()) return null;
@@ -178,20 +189,16 @@ public class SquadCoverManager {
             if (node.isAvailable(mob.getUUID())) {
                 double distSq = node.getCenterVec().distanceToSqr(mobPos);
                 if (distSq < bestDistSq) {
-                    // Validar si la cobertura es alcanzable o si está separada por roca sólida impenetrable
-                    Vec3 nodeEye = node.getCenterVec().add(0, 1.2, 0);
+                    Vec3 nodeEye = node.getCenterVec().add(0, 1.5, 0);
                     HitResult directLine = mob.level().clip(new ClipContext(
                             mobEye, nodeEye,
                             ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, mob
                     ));
 
-                    // Si hay visión directa hacia la cobertura O está muy cerca (< 4 bloques):
                     if (directLine.getType() == HitResult.Type.MISS || distSq <= 16.0) {
                         bestDistSq = distSq;
                         bestNode = node;
-                    }
-                    // Si hay una pared de por medio, validar si el pathfinder puede crear una ruta real
-                    else if (mob.getNavigation().createPath(node.getPos(), 0) != null) {
+                    } else if (mob.getNavigation().createPath(node.getPos(), 0) != null) {
                         bestDistSq = distSq;
                         bestNode = node;
                     }
