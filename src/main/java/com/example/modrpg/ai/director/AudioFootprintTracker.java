@@ -73,6 +73,10 @@ public class AudioFootprintTracker {
         }
     }
 
+    public static void clearAll() {
+        ACTIVE_PINGS.clear();
+    }
+
     /**
      * Limpia los pulsos acústicos expirados en cada ciclo del Director.
      */

@@ -61,12 +61,20 @@ import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.event.entity.player.PlayerInteractEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
+import net.minecraftforge.event.server.ServerStoppedEvent;
+
+
 
 import java.util.List;
 import java.util.UUID;
 
 @Mod.EventBusSubscriber(modid = ModRpg.MODID)
 public class ModEvents {
+    @SubscribeEvent
+    public static void onServerStopped(ServerStoppedEvent event) {
+        SquadCoordinator.clearAll();
+        AudioFootprintTracker.clearAll();
+    }
 
     // =========================================================================
     // 1. GESTIÓN DE CAPABILITIES Y CICLO DE VIDA DEL JUGADOR

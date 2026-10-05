@@ -70,6 +70,11 @@ public class TacticalCasterGoal extends Goal {
     }
 
     @Override
+    public boolean requiresUpdateEveryTick() {
+        return true;
+    }
+
+    @Override
     public void start() {
         this.cooldownTicks = 20;
         this.isCharging = false;

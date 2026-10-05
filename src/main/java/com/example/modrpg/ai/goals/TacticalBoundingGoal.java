@@ -77,6 +77,11 @@ public class TacticalBoundingGoal extends Goal {
     }
 
     @Override
+    public boolean requiresUpdateEveryTick() {
+        return true;
+    }
+
+    @Override
     public void start() {
         this.burstShotsRemaining = 3; // Ráfaga de 3 disparos
         this.burstDelayTicks = 4;     // Tiempo de apuntado inicial antes del primer tiro

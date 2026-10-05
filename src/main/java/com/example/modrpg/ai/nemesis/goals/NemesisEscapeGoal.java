@@ -67,6 +67,11 @@ public class NemesisEscapeGoal extends Goal {
     }
 
     @Override
+    public boolean requiresUpdateEveryTick() {
+        return true;
+    }
+
+    @Override
     public void start() {
         this.smokeTriggered = false;
         this.escapeTicks = 0;

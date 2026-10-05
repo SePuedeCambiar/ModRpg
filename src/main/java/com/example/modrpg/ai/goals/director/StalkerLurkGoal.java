@@ -51,6 +51,11 @@ public class StalkerLurkGoal extends Goal {
     }
 
     @Override
+    public boolean requiresUpdateEveryTick() {
+        return true;
+    }
+
+    @Override
     public void start() {
         this.staringTicks = 0;
         this.retreatTicks = 0;

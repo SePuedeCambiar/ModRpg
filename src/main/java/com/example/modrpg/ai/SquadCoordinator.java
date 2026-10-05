@@ -311,6 +311,12 @@ public class SquadCoordinator {
         squad.rebuildTokenPool();
     }
 
+    public static void clearAll() {
+        ACTIVE_SQUADS.clear();
+        MOB_SQUAD_MAP.clear();
+    }
+
+
     /**
      * Muerte confirmada en combate (LivingDeathEvent).
      */

@@ -89,6 +89,11 @@ public class TacticalFlankGoal extends Goal {
     }
 
     @Override
+    public boolean requiresUpdateEveryTick() {
+        return true;
+    }
+
+    @Override
     public void start() {
         this.flankTimer = 0;
 

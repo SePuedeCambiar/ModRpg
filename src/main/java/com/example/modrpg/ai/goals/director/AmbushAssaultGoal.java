@@ -61,6 +61,10 @@ public class AmbushAssaultGoal extends Goal {
     }
 
     @Override
+    public boolean requiresUpdateEveryTick() {
+        return true;
+    }
+    @Override
     public void start() {
         this.strikeDelayTicks = 30; // 1.5 segundos de gracia con ruido de advertencia
         this.preCueExecuted = false;

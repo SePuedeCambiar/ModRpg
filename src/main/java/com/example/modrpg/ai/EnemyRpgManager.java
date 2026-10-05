@@ -30,10 +30,10 @@ import java.util.List;
 
 /**
  * Administrador central de la IA hostil:
- * 1. Inicializa arquetipos de combate (Sniper, Juggernaut, Necromancer, etc.).
+ * 1. Inicializa arquetipos de combate y los persiste en NBT (Fix A2).
  * 2. Equipa armaduras teñidas y armas temáticas.
- * 3. Asigna miembros a escuadrones coordinados (SquadCoordinator).
- * 4. Asciende líderes campeones con afijos únicos.
+ * 3. Purga metas vanilla DESPUÉS de equipar para anular reassessWeaponGoal() (Fix B1).
+ * 4. Asigna miembros a escuadrones coordinados (SquadCoordinator) incluso tras recargas de chunk.
  * 5. Inyecta la jerarquía integrada de metas: F.E.A.R. + Alien: Isolation Director.
  */
 public class EnemyRpgManager {
@@ -41,61 +41,83 @@ public class EnemyRpgManager {
     public static final String TAG_INITIALIZED = "modrpg_enemy_initialized";
     public static final String TAG_CASTER = "modrpg_enemy_caster";
 
-    public static void tryInitializeMob(Monster mob) {
-        if (mob == null || mob.getTags().contains(TAG_INITIALIZED)) return;
+    // SPRINT 1 FIX (Bug A2): Claves para persistir la identidad del mob en disco (NBT)
+    public static final String TAG_ARCHETYPE = "modrpg_archetype";
+    public static final String TAG_SPELL_LEVEL = "modrpg_spell_level";
 
-        // SPRINT 3 FIX: Si la entidad es un esbirro aliado del jugador, ignorar por completo
+    public static void tryInitializeMob(Monster mob) {
+        if (mob == null) return;
+
+        // Ignorar esbirros aliados del jugador
         if (mob.getTags().contains(MinionHelper.TAG_MINION)) return;
 
-        mob.addTag(TAG_INITIALIZED);
+        boolean alreadyInitialized = mob.getTags().contains(TAG_INITIALIZED);
 
-        ServerLevel level = (ServerLevel) mob.level();
-        RandomSource random = mob.getRandom();
+        EnemyArchetype selectedArchetype = null;
+        int spellPowerLevel = 1;
 
-        // =========================================================================
-        // 1. FILTRADO DE ARQUETIPOS COMPATIBLES CON EL TIPO DE MOB
-        // =========================================================================
-        List<EnemyArchetype> candidates = new ArrayList<>();
-        for (EnemyArchetype archetype : EnemyArchetype.values()) {
-            if (archetype.isCompatibleWith(mob.getType())) {
-                candidates.add(archetype);
+        if (!alreadyInitialized) {
+            // =====================================================================
+            // CASO A: PRIMERA VEZ (Spawn nuevo en el mundo)
+            // =====================================================================
+            ServerLevel level = (ServerLevel) mob.level();
+            RandomSource random = mob.getRandom();
+
+            List<EnemyArchetype> candidates = new ArrayList<>();
+            for (EnemyArchetype archetype : EnemyArchetype.values()) {
+                if (archetype.isCompatibleWith(mob.getType())) {
+                    candidates.add(archetype);
+                }
+            }
+            if (candidates.isEmpty()) return;
+
+            float power = calculatePowerRating(level, mob);
+
+            boolean isHordeMember = mob.getTags().contains(NemesisHordeManager.TAG_NEMESIS_SQUAD);
+            float casterChance = Math.min(0.65f, 0.20f + (power * 0.01f));
+
+            if (!isHordeMember && random.nextFloat() > casterChance) {
+                return;
+            }
+
+            selectedArchetype = selectArchetypeForPower(candidates, power, random);
+
+            if (power >= 40.0f) spellPowerLevel = 3 + random.nextInt(3);
+            else if (power >= 20.0f) spellPowerLevel = 2;
+
+            // SPRINT 1 FIX (A2): Guardar en NBT para sobrevivir a recargas de chunks
+            mob.addTag(TAG_INITIALIZED);
+            mob.addTag(TAG_CASTER);
+            mob.getPersistentData().putString(TAG_ARCHETYPE, selectedArchetype.name());
+            mob.getPersistentData().putInt(TAG_SPELL_LEVEL, spellPowerLevel);
+
+            // SPRINT 1 FIX (B1): Equipar al mob PRIMERO (esto puede disparar reassessWeaponGoal en esqueletos)
+            applyVisualsAndEquipment(mob, selectedArchetype);
+
+        } else {
+            // =====================================================================
+            // CASO B: RECARGA DE CHUNK (El mob ya existía y fue cargado de disco)
+            // =====================================================================
+            if (mob.getPersistentData().contains(TAG_ARCHETYPE)) {
+                try {
+                    selectedArchetype = EnemyArchetype.valueOf(mob.getPersistentData().getString(TAG_ARCHETYPE));
+                    spellPowerLevel = mob.getPersistentData().getInt(TAG_SPELL_LEVEL);
+                } catch (IllegalArgumentException e) {
+                    return;
+                }
+            } else {
+                return; // Mob vanilla o sin datos válidos
             }
         }
 
-        if (candidates.isEmpty()) return;
+        // SPRINT 1 FIX (A2 y B1): Re-acoplar el escuadrón y las metas tácticas (se ejecuta siempre)
+        attachBehaviorAndSquad(mob, selectedArchetype, spellPowerLevel);
+    }
 
-        // =========================================================================
-        // 2. CÁLCULO DE PODER DEL ENTORNO (DÍAS + PROGRESIÓN DE JUGADORES)
-        // =========================================================================
-        float power = calculatePowerRating(level, mob);
-
-        // =========================================================================
-        // 3. SELECCIÓN DE ARQUETIPO Y NIVEL DE HECHIZO
-        // =========================================================================
-        // SPRINT 4 FIX: Los miembros de una incursión táctica SIEMPRE son especialistas al 100%
-        boolean isHordeMember = mob.getTags().contains(NemesisHordeManager.TAG_NEMESIS_SQUAD);
-        float casterChance = Math.min(0.65f, 0.20f + (power * 0.01f));
-
-        // Solo los spawns naturales nocturnos pasan por el filtro de probabilidad
-        if (!isHordeMember && random.nextFloat() > casterChance) {
-            return;
-        }
-
-        EnemyArchetype selectedArchetype = selectArchetypeForPower(candidates, power, random);
-
-        int spellPowerLevel = 1;
-        if (power >= 40.0f) spellPowerLevel = 3 + random.nextInt(3);
-        else if (power >= 20.0f) spellPowerLevel = 2;
-
-        CraftedSpell spell = selectedArchetype.buildSpell(spellPowerLevel);
-        mob.addTag(TAG_CASTER);
-
-        // SPRINT 3 FIX: Purgar metas vanilla de ataque para que no compitan con la IA F.E.A.R.
-        purgeVanillaAttackGoals(mob);
-
-        // =========================================================================
-        // 4. EQUIPAMIENTO, TINTADO Y SILUETA VISUAL LEGIBLE
-        // =========================================================================
+    /**
+     * Aplica el equipamiento, tintado de armadura y atributos base.
+     */
+    public static void applyVisualsAndEquipment(Monster mob, EnemyArchetype selectedArchetype) {
         mob.setItemSlot(EquipmentSlot.MAINHAND, new ItemStack(selectedArchetype.getMainHandItem()));
         mob.setDropChance(EquipmentSlot.MAINHAND, 0.02f);
 
@@ -132,66 +154,63 @@ public class EnemyRpgManager {
                 kbAttr.setBaseValue(kbAttr.getBaseValue() + 0.4);
             }
         }
+    }
 
-        // =========================================================================
-        // 5. ASIGNACIÓN A ESCUADRÓN TÁCTICO F.E.A.R.
-        // =========================================================================
-        // SPRINT 4 FIX: Solo auto-asignar si no pertenece ya a un escuadrón pre-fundado
+    /**
+     * SPRINT 1 FIX (Bugs A2 y B1):
+     * 1. Purga las metas vanilla DESPUÉS de haber equipado las armas (destruye reassessWeaponGoal()).
+     * 2. Re-asigna o recupera el escuadrón táctico.
+     * 3. Inyecta la jerarquía de metas custom tanto en spawns nuevos como tras recargas de chunk.
+     */
+    public static void attachBehaviorAndSquad(Monster mob, EnemyArchetype selectedArchetype, int spellPowerLevel) {
+        if (mob == null || selectedArchetype == null) return;
+
+        // B1 FIX: Purgar metas vanilla DESPUÉS del equipamiento para neutralizar reassessWeaponGoal()
+        purgeVanillaAttackGoals(mob);
+
+        // A2 FIX: Registrar o reasociar en el escuadrón táctico
         if (SquadCoordinator.getSquadFor(mob) == null) {
             SquadCoordinator.assignToSquad(mob);
         }
         SquadCoordinator.Squad squad = SquadCoordinator.getSquadFor(mob);
 
-        // =========================================================================
-        // 6. ASCENSO A CAMPEÓN / LÍDER (Probabilidad 8% - 20% según el poder)
-        // =========================================================================
-        float championChance = Math.min(0.20f, 0.08f + (power * 0.003f));
-        if (squad != null && squad.leaderUUID == null && random.nextFloat() < championChance) {
-            ChampionAffix[] affixes = new ChampionAffix[]{
-                    ChampionAffix.COMMANDER,
-                    ChampionAffix.RUNIC_SHIELD,
-                    ChampionAffix.VAMPIRIC,
-                    ChampionAffix.MANA_BURN
-            };
-            ChampionAffix affix = affixes[random.nextInt(affixes.length)];
-            affix.applyModifiers(mob);
-            squad.leaderUUID = mob.getUUID();
+        // Ascenso a Campeón / Líder (solo en nuevos y si el escuadrón no tiene líder)
+        if (!mob.getTags().contains("modrpg_champion") && squad != null && squad.leaderUUID == null && !mob.level().isClientSide()) {
+            ServerLevel level = (ServerLevel) mob.level();
+            float power = calculatePowerRating(level, mob);
+            float championChance = Math.min(0.20f, 0.08f + (power * 0.003f));
+            if (mob.getRandom().nextFloat() < championChance) {
+                ChampionAffix[] affixes = new ChampionAffix[]{
+                        ChampionAffix.COMMANDER,
+                        ChampionAffix.RUNIC_SHIELD,
+                        ChampionAffix.VAMPIRIC,
+                        ChampionAffix.MANA_BURN
+                };
+                ChampionAffix affix = affixes[mob.getRandom().nextInt(affixes.length)];
+                affix.applyModifiers(mob);
+                squad.leaderUUID = mob.getUUID();
+            }
         }
 
-        // =========================================================================
-        // 7. INYECCIÓN DE LA JERARQUÍA DE METAS (GOALS) INTEGRADA
-        // =========================================================================
-        // Prioridad 1: Rescate de Emergencia (Peeling). Solo tanques; interrumpe todo para salvar al caster.
+        CraftedSpell spell = selectedArchetype.buildSpell(spellPowerLevel);
+
+        // Inyección idempotente de metas de IA
         if (selectedArchetype.isAggressiveRush()) {
             mob.goalSelector.addGoal(1, new TacticalPeelGoal(mob, selectedArchetype));
-        }
-
-        // Prioridad 2: Asalto en Emboscada. Vanguardia carga físicamente al detectar vulnerabilidad/clímax.
-        if (selectedArchetype.isAggressiveRush()) {
             mob.goalSelector.addGoal(2, new AmbushAssaultGoal(mob, selectedArchetype));
-        }
-
-        // Prioridad 3: Acecho en Sombras. Exclusivo de tiradores/casters (los tanques nunca acechan en sombras).
-        if (!selectedArchetype.isAggressiveRush()) {
+        } else {
             mob.goalSelector.addGoal(3, new StalkerLurkGoal(mob, selectedArchetype));
-        }
-
-        // Prioridad 4: Fuego de Supresión. Los arqueros saturan al jugador para permitir el avance del tanque.
-        if (!selectedArchetype.isAggressiveRush() && selectedArchetype.getMainHandItem() == Items.BOW) {
-            mob.goalSelector.addGoal(4, new TacticalBoundingGoal(mob, selectedArchetype));
-        }
-
-        // Prioridad 5: Flanqueo Lateral. Asesinos y tropas rápidas buscan ángulos de 90° en el punto ciego.
-        if (!selectedArchetype.isAggressiveRush()) {
+            if (selectedArchetype.getMainHandItem() == Items.BOW) {
+                mob.goalSelector.addGoal(4, new TacticalBoundingGoal(mob, selectedArchetype));
+            }
             mob.goalSelector.addGoal(5, new TacticalFlankGoal(mob, selectedArchetype));
         }
 
-        // Prioridad 6: Combate Táctico F.E.A.R. Coberturas sin lag, canalizaciones con telegrafiado y Rompe-Postura.
         mob.goalSelector.addGoal(6, new TacticalCasterGoal(mob, selectedArchetype, spell));
     }
 
     /**
-     * SPRINT 3 FIX: Elimina las metas vanilla de ataque para que no compitan con la IA F.E.A.R.
+     * Elimina metas vanilla de ataque para que no compitan con la IA táctica del mod.
      */
     private static void purgeVanillaAttackGoals(Monster mob) {
         mob.goalSelector.removeAllGoals(goal ->
@@ -218,7 +237,7 @@ public class EnemyRpgManager {
 
         float playerPower = 0.0f;
         if (!nearbyPlayers.isEmpty()) {
-            int[] totalLevels = new int[1]; // Evita instanciar AtomicInteger innecesario
+            int[] totalLevels = new int[1];
             for (ServerPlayer player : nearbyPlayers) {
                 player.getCapability(PlayerSkillsProvider.PLAYER_SKILLS).ifPresent(skills -> {
                     skills.getAllBranchLevels().values().forEach(lvl -> totalLevels[0] += lvl);

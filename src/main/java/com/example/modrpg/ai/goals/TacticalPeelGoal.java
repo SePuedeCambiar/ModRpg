@@ -70,6 +70,11 @@ public class TacticalPeelGoal extends Goal {
     }
 
     @Override
+    public boolean requiresUpdateEveryTick() {
+        return true;
+    }
+
+    @Override
     public void start() {
         this.interceptTicks = 0;
         this.hasInterrupted = false;
